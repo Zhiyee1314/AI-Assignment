@@ -36,18 +36,7 @@ def main():
     # Input for name
     input_name = st.text_input('Name:')
     
-    if st.button('Predict'):
-        if input_name.strip() != '':
-            # Extract features for the input name
-            features = extract_gender_features(input_name)
-            
-            # Predict using the trained classifier
-            predicted_gender = bayes.classify(features)
-            
-            # Display prediction
-            st.success(f'The predicted gender for "{input_name}" is: {predicted_gender}')
-        else:
-            st.warning('Please enter a name.')
+
 
 if __name__ == '__main__':
     main()
