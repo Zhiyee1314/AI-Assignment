@@ -1,3 +1,4 @@
 nltk
 joblib
 streamlit
+scikit-learn
