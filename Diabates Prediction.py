@@ -29,6 +29,7 @@ MODEL_FILES = {
 
 IMPUTER_FILE = "imputer.pkl"
 SCALER_FILE = "scaler.pkl"
+HISTORY_FILE = "prediction_history.csv"
 
 
 # Columns where a 0 actually means "missing" (matches your training script)
