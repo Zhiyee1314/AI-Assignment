@@ -29,7 +29,6 @@ MODEL_FILES = {
 
 IMPUTER_FILE = "imputer.pkl"
 SCALER_FILE = "scaler.pkl"
-HISTORY_FILE = "prediction_history.csv"
 
 
 # Columns where a 0 actually means "missing" (matches your training script)
@@ -105,10 +104,30 @@ page = st.sidebar.radio("Page", ["Predict", "Prediction History"])
 
 
 # ----------------------------------------------------------------------
-# HEADER
+# HEADER (changes title/description depending on the selected model)
 # ----------------------------------------------------------------------
-st.markdown("## 🩺 Diabetes Risk Predictor")
-st.caption("Enter the patient's health information below.")
+MODEL_TITLES = {
+    "ANN": "🧠 ANN Diabetes Risk Predictor",
+    "SVM": "📈 SVM Diabetes Risk Predictor",
+}
+MODEL_SUBTITLES = {
+    "ANN": "Powered by a Multilayer Perceptron (Neural Network) that learns non-linear patterns between health features.",
+    "SVM": "Powered by a Support Vector Machine that finds the optimal boundary separating diabetic vs non-diabetic cases.",
+}
+MODEL_ACCENT = {
+    "ANN": "#6C63FF",
+    "SVM": "#FF6B6B",
+}
+
+title_text = MODEL_TITLES.get(model_choice, "🩺 Diabetes Risk Predictor")
+subtitle_text = MODEL_SUBTITLES.get(model_choice, "Enter the patient's health information below.")
+accent = MODEL_ACCENT.get(model_choice, "#888888")
+
+st.markdown(
+    f"<h2 style='color:{accent};margin-bottom:0'>{title_text}</h2>",
+    unsafe_allow_html=True
+)
+st.caption(subtitle_text)
 
 imputer, scaler = get_shared_preprocessors()
 
@@ -125,21 +144,47 @@ if imputer is None or scaler is None:
 # ----------------------------------------------------------------------
 if page == "Predict":
 
-    col1, col2 = st.columns(2)
+    if model_choice == "SVM":
+        # ---- SVM gets a distinct layout: tabs + sliders instead of
+        # ---- the two-column number_input grid used by ANN/KNN ----
+        tab1, tab2, tab3 = st.tabs(["🩸 Vitals", "🧪 Lab Results", "👤 Profile"])
 
-    with col1:
-        pregnancies = st.number_input("Pregnancies", min_value=0, max_value=20, value=3, step=1)
-        glucose = st.number_input("Glucose", min_value=0, max_value=300, value=162, step=1)
-        blood_pressure = st.number_input("Blood Pressure", min_value=0, max_value=200, value=80, step=1)
-        skin_thickness = st.number_input("Skin Thickness", min_value=0, max_value=100, value=20, step=1)
+        with tab1:
+            blood_pressure = st.slider("Blood Pressure (mm Hg)", 0, 200, 80)
+            pregnancies = st.slider("Number of Pregnancies", 0, 20, 3)
 
-    with col2:
-        insulin = st.number_input("Insulin", min_value=0, max_value=900, value=70, step=1)
-        bmi = st.number_input("BMI", min_value=0.0, max_value=70.0, value=30.01, step=0.01, format="%.2f")
-        dpf = st.number_input("Diabetes Pedigree Function", min_value=0.0, max_value=3.0, value=0.51, step=0.01, format="%.2f")
-        age = st.number_input("Age", min_value=1, max_value=120, value=35, step=1)
+        with tab2:
+            glucose = st.slider("Glucose Level (mg/dL)", 0, 300, 162)
+            insulin = st.slider("Insulin (mu U/ml)", 0, 900, 70)
+            skin_thickness = st.slider("Skin Thickness (mm)", 0, 100, 20)
+            bmi = st.slider("BMI", 0.0, 70.0, 30.01, step=0.01)
 
-    if st.button("Predict", type="primary"):
+        with tab3:
+            age = st.slider("Age (years)", 1, 120, 35)
+            dpf = st.slider("Diabetes Pedigree Function", 0.0, 3.0, 0.51, step=0.01)
+
+        st.write("")
+        run_clicked = st.button("🔍 Run SVM Risk Assessment", type="primary", use_container_width=True)
+
+    else:
+        # ---- Original layout for ANN / KNN ----
+        col1, col2 = st.columns(2)
+
+        with col1:
+            pregnancies = st.number_input("Pregnancies", min_value=0, max_value=20, value=3, step=1)
+            glucose = st.number_input("Glucose", min_value=0, max_value=300, value=162, step=1)
+            blood_pressure = st.number_input("Blood Pressure", min_value=0, max_value=200, value=80, step=1)
+            skin_thickness = st.number_input("Skin Thickness", min_value=0, max_value=100, value=20, step=1)
+
+        with col2:
+            insulin = st.number_input("Insulin", min_value=0, max_value=900, value=70, step=1)
+            bmi = st.number_input("BMI", min_value=0.0, max_value=70.0, value=30.01, step=0.01, format="%.2f")
+            dpf = st.number_input("Diabetes Pedigree Function", min_value=0.0, max_value=3.0, value=0.51, step=0.01, format="%.2f")
+            age = st.number_input("Age", min_value=1, max_value=120, value=35, step=1)
+
+        run_clicked = st.button("Predict", type="primary")
+
+    if run_clicked:
         model_path = available_models[model_choice]
         model = load_pickle(model_path)
 
@@ -168,10 +213,32 @@ if page == "Predict":
             # Fallback for models without predict_proba (e.g. some SVM configs)
             proba = float(prediction)
 
-        if prediction == 1:
-            st.error(f"⚠️ High Risk of Diabetes (probability: {proba*100:.1f}%)")
+        if model_choice == "SVM":
+            # ---- Distinct SVM result: gauge-style progress bar instead
+            # ---- of the st.error/st.success banner used by ANN/KNN ----
+            st.write("")
+            st.markdown("#### Risk Assessment Result")
+            risk_pct = proba * 100
+            bar_color = "#FF6B6B" if prediction == 1 else "#22B07D"
+            st.markdown(
+                f"""
+                <div style="background:#eee;border-radius:8px;height:28px;width:100%;overflow:hidden;">
+                  <div style="background:{bar_color};height:100%;width:{risk_pct:.1f}%;
+                       display:flex;align-items:center;justify-content:flex-end;padding-right:8px;
+                       color:white;font-weight:600;font-size:13px;">
+                       {risk_pct:.1f}%
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            label = "HIGH RISK" if prediction == 1 else "LOW RISK"
+            st.markdown(f"**Classification:** :{'red' if prediction == 1 else 'green'}[{label}]")
         else:
-            st.success(f"✅ Low Risk of Diabetes (probability: {proba*100:.1f}%)")
+            if prediction == 1:
+                st.error(f"⚠️ High Risk of Diabetes (probability: {proba*100:.1f}%)")
+            else:
+                st.success(f"✅ Low Risk of Diabetes (probability: {proba*100:.1f}%)")
 
         st.caption("This is a machine learning prediction for educational purposes only, not a medical diagnosis.")
 
