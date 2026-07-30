@@ -146,24 +146,26 @@ if imputer is None or scaler is None:
 if page == "Predict":
 
     if model_choice == "SVM":
-        # ---- Similar structure to ANN (two-column number inputs), but
-        # ---- with a different field grouping/order and result style ----
-        col1, col2 = st.columns(2)
+        # ---- SVM gets a distinct layout: tabs + sliders instead of
+        # ---- the two-column number_input grid used by ANN/KNN ----
+        tab1, tab2, tab3 = st.tabs(["🩸 Vitals", "🧪 Lab Results", "👤 Profile"])
 
-        with col1:
-            glucose = st.number_input("Glucose", min_value=0, max_value=300, value=162, step=1)
-            insulin = st.number_input("Insulin", min_value=0, max_value=900, value=70, step=1)
-            bmi = st.number_input("BMI", min_value=0.0, max_value=70.0, value=30.01, step=0.01, format="%.2f")
-            age = st.number_input("Age", min_value=1, max_value=120, value=35, step=1)
+        with tab1:
+            blood_pressure = st.slider("Blood Pressure (mm Hg)", 0, 200, 80)
+            pregnancies = st.slider("Number of Pregnancies", 0, 20, 3)
 
-        with col2:
-            blood_pressure = st.number_input("Blood Pressure", min_value=0, max_value=200, value=80, step=1)
-            skin_thickness = st.number_input("Skin Thickness", min_value=0, max_value=100, value=20, step=1)
-            pregnancies = st.number_input("Pregnancies", min_value=0, max_value=20, value=3, step=1)
-            dpf = st.number_input("Diabetes Pedigree Function", min_value=0.0, max_value=3.0, value=0.51, step=0.01, format="%.2f")
+        with tab2:
+            glucose = st.slider("Glucose Level (mg/dL)", 0, 300, 162)
+            insulin = st.slider("Insulin (mu U/ml)", 0, 900, 70)
+            skin_thickness = st.slider("Skin Thickness (mm)", 0, 100, 20)
+            bmi = st.slider("BMI", 0.0, 70.0, 30.01, step=0.01)
 
-       
-    run_clicked = st.button("🔎 Assess Risk", type="primary")
+        with tab3:
+            age = st.slider("Age (years)", 1, 120, 35)
+            dpf = st.slider("Diabetes Pedigree Function", 0.0, 3.0, 0.51, step=0.01)
+
+        st.write("")
+        run_clicked = st.button("🔍 Run SVM Risk Assessment", type="primary", use_container_width=True)
 
     else:
         # ---- Original layout for ANN / KNN ----
