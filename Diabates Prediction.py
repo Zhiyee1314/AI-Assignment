@@ -105,33 +105,10 @@ page = st.sidebar.radio("Page", ["Predict", "Prediction History"])
 
 
 # ----------------------------------------------------------------------
-# HEADER (changes title/description depending on the selected model)
+# HEADER
 # ----------------------------------------------------------------------
-MODEL_TITLES = {
-    "ANN": "🧠 ANN Diabetes Risk Predictor",
-    "SVM": "📈 SVM Diabetes Risk Predictor",
-    "KNN": "👥 KNN Diabetes Risk Predictor",
-}
-MODEL_SUBTITLES = {
-    "ANN": "Powered by a Multilayer Perceptron (Neural Network) that learns non-linear patterns between health features.",
-    "SVM": "Powered by a Support Vector Machine that finds the optimal boundary separating diabetic vs non-diabetic cases.",
-    "KNN": "Powered by K-Nearest Neighbors, which predicts based on the most similar past patients in the dataset.",
-}
-MODEL_ACCENT = {
-    "ANN": "#6C63FF",
-    "SVM": "#FF6B6B",
-    "KNN": "#22B07D",
-}
-
-title_text = MODEL_TITLES.get(model_choice, "🩺 Diabetes Risk Predictor")
-subtitle_text = MODEL_SUBTITLES.get(model_choice, "Enter the patient's health information below.")
-accent = MODEL_ACCENT.get(model_choice, "#888888")
-
-st.markdown(
-    f"<h2 style='color:{accent};margin-bottom:0'>{title_text}</h2>",
-    unsafe_allow_html=True
-)
-st.caption(subtitle_text)
+st.markdown("## 🩺 Diabetes Risk Predictor")
+st.caption("Enter the patient's health information below.")
 
 imputer, scaler = get_shared_preprocessors()
 
