@@ -162,7 +162,10 @@ if page == "Predict":
             pregnancies = st.number_input("Pregnancies", min_value=0, max_value=20, value=3, step=1)
             dpf = st.number_input("Diabetes Pedigree Function", min_value=0.0, max_value=3.0, value=0.51, step=0.01, format="%.2f")
 
-        run_clicked = st.button("🔎 Assess Risk", type="primary")
+        col1, col2, col3, col4 = st.columns([4, 1, 1, 1])
+
+with col4:
+    run_clicked = st.button("🔎 Assess Risk", type="primary")
 
     else:
         # ---- Original layout for ANN / KNN ----
