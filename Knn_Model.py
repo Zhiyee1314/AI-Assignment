@@ -10,12 +10,6 @@ from sklearn.metrics import (
     accuracy_score, precision_score, recall_score,
     f1_score, confusion_matrix, classification_report
 )
-
-# Save the trained model and scaler to .pkl files
-joblib.dump(model, "knn_model.pkl")
-joblib.dump(scaler, "scaler.pkl")
-
-return model, scaler, feature_names, results
  
 warnings.filterwarnings("ignore", category=UserWarning)
  
@@ -78,7 +72,11 @@ def train_model(csv_path=CSV_PATH):
         "report": classification_report(y_test, y_pred, output_dict=True),
         "dataset_shape": df.shape,
     }
- 
+  
+  # Save the trained model and scaler to .pkl files
+  joblib.dump(model, "knn_model.pkl")
+  joblib.dump(scaler, "scaler.pkl")
+
     return model, scaler, feature_names, results
  
  
