@@ -1,69 +1,94 @@
+"""
+KNN (K-Nearest Neighbors) for Diabetes Prediction
+
+Uses the SAME raw dataset, SAME imputer.pkl and SAME scaler.pkl that were
+already fitted and saved by ann_model.py, so ANN / SVM / KNN are all
+compared on identical preprocessing and an identical train/test split.
+"""
+
 import pandas as pd
 import numpy as np
 import joblib
+
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    confusion_matrix, classification_report, roc_auc_score
+)
 
-# ------------------------------------------------------------------
-# 1. Load dataset
-# ------------------------------------------------------------------
-df = pd.read_csv("diabetes.csv")
+RAW_PATH = "diabetes.csv"     # original, unprocessed dataset (same folder)
+TARGET_COL = "Outcome"
+RANDOM_STATE = 42             # must match ann_model.py's split
 
 FEATURE_ORDER = [
     "Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
     "Insulin", "BMI", "DiabetesPedigreeFunction", "Age"
 ]
-TARGET = "Outcome"
 
-X = df[FEATURE_ORDER].copy()
-y = df[TARGET].copy()
+# ---------------------------------------------------------------
+# 1. Load raw data + reuse the SAME imputer/scaler already fitted
+#    by ann_model.py (do NOT re-fit new ones here -> that would
+#    make KNN's preprocessing inconsistent with ANN's/SVM's)
+# ---------------------------------------------------------------
+raw = pd.read_csv(RAW_PATH)
+imputer = joblib.load("imputer.pkl")
+scaler = joblib.load("scaler.pkl")
 
-# ------------------------------------------------------------------
-# 2. Treat 0 as missing for invalid medical columns
-# ------------------------------------------------------------------
-ZERO_AS_MISSING_COLS = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
-for c in ZERO_AS_MISSING_COLS:
-    X[c] = X[c].replace(0, np.nan)
+cols_with_invalid_zero = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
+clean = raw.copy()
+for c in cols_with_invalid_zero:
+    clean[c] = clean[c].replace(0, np.nan)
 
-# ------------------------------------------------------------------
-# 3. Train/test split (identical split matching team settings)
-# ------------------------------------------------------------------
+X = clean[FEATURE_ORDER]
+y = clean[TARGET_COL]
+
+X_imputed = pd.DataFrame(imputer.transform(X), columns=FEATURE_ORDER)
+X_scaled = pd.DataFrame(scaler.transform(X_imputed), columns=FEATURE_ORDER)
+
+# ---------------------------------------------------------------
+# 2. Train/test split -- SAME settings as ann_model.py
+# ---------------------------------------------------------------
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
+    X_scaled, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y
 )
 
-# ------------------------------------------------------------------
-# 4. Load your teammate's existing Imputer & Scaler
-#    (CRITICAL: Use .transform(), NOT .fit_transform())
-# ------------------------------------------------------------------
-imputer = joblib.load("imputer.pkl")
-scaler  = joblib.load("scaler.pkl")
+# ---------------------------------------------------------------
+# 3. Hyperparameter tuning
+#    n_neighbors (K) controls the decision boundary. weights determines
+#    whether closer neighbors have higher influence, and metric defines
+#    the distance calculation algorithm.
+# ---------------------------------------------------------------
+param_grid = {
+    "n_neighbors": range(1, 31),
+    "weights": ["uniform", "distance"],
+    "metric": ["euclidean", "manhattan"]
+}
+grid = GridSearchCV(
+    KNeighborsClassifier(),
+    param_grid, cv=5, scoring="f1", n_jobs=-1
+)
+grid.fit(X_train, y_train)
+knn = grid.best_estimator_
+print("Best hyperparameters:", grid.best_params_)
 
-X_train_imputed = imputer.transform(X_train)
-X_test_imputed  = imputer.transform(X_test)
+# ---------------------------------------------------------------
+# 4. Evaluate on test set
+# ---------------------------------------------------------------
+y_pred = knn.predict(X_test)
+y_prob = knn.predict_proba(X_test)[:, 1]
 
-X_train_scaled = scaler.transform(X_train_imputed)
-X_test_scaled  = scaler.transform(X_test_imputed)
+print("\n===== KNN (Tuned) — Final Results =====")
+print(f"Accuracy : {accuracy_score(y_test, y_pred):.4f}")
+print(f"Precision: {precision_score(y_test, y_pred):.4f}")
+print(f"Recall   : {recall_score(y_test, y_pred):.4f}")
+print(f"F1-score : {f1_score(y_test, y_pred):.4f}")
+print(f"AUC      : {roc_auc_score(y_test, y_prob):.4f}")
+print("\nConfusion Matrix:\n", confusion_matrix(y_test, y_pred))
+print("\n", classification_report(y_test, y_pred))
 
-# ------------------------------------------------------------------
-# 5. Tune K & Train KNN Model
-# ------------------------------------------------------------------
-param_grid = {"n_neighbors": range(1, 31)}
-grid = GridSearchCV(KNeighborsClassifier(), param_grid, cv=5, scoring="accuracy")
-grid.fit(X_train_scaled, y_train)
-
-best_k = grid.best_params_["n_neighbors"]
-print(f"Optimal K found: {best_k}")
-
-knn_model = KNeighborsClassifier(n_neighbors=best_k)
-knn_model.fit(X_train_scaled, y_train)
-
-acc = knn_model.score(X_test_scaled, y_test)
-print(f"KNN Test accuracy: {acc:.3f}")
-
-# ------------------------------------------------------------------
-# 6. Save ONLY your knn_model.pkl
-# ------------------------------------------------------------------
-joblib.dump(knn_model, "knn_model.pkl")
-print("Saved: knn_model.pkl successfully!")
+# ---------------------------------------------------------------
+# 5. Save model for Streamlit deployment
+# ---------------------------------------------------------------
+joblib.dump(knn, "knn_model.pkl")
+print("\nSaved: knn_model.pkl")
