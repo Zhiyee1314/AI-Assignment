@@ -1,6 +1,7 @@
 import warnings
 import pandas as pd
 import numpy as np
+import joblib
 import streamlit as st
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler
@@ -9,6 +10,12 @@ from sklearn.metrics import (
     accuracy_score, precision_score, recall_score,
     f1_score, confusion_matrix, classification_report
 )
+
+# Save the trained model and scaler to .pkl files
+joblib.dump(model, "knn_model.pkl")
+joblib.dump(scaler, "scaler.pkl")
+
+return model, scaler, feature_names, results
  
 warnings.filterwarnings("ignore", category=UserWarning)
  
