@@ -4,6 +4,8 @@ import numpy as np
 import joblib
 import os
 from datetime import datetime
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score)
 
 # ----------------------------------------------------------------------
 # PAGE CONFIG
@@ -18,6 +20,10 @@ FEATURES = [
     "Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
     "Insulin", "BMI", "DiabetesPedigreeFunction", "Age"
 ]
+
+TARGET_COL = "Outcome"
+RAW_PATH = "diabetes.csv"
+RANDOM_STATE = 42
 
 # Map: dropdown label -> model file on disk
 # Add new members' models here (or auto-detected below)
@@ -60,6 +66,46 @@ def get_shared_preprocessors():
     scaler = load_pickle(SCALER_FILE) if os.path.exists(SCALER_FILE) else None
     return imputer, scaler
 
+# ----------------------------------------------------------------------
+# MODEL COMPARISON HELPERS (evaluates every available model on the
+# SAME held-out test set, using the SAME shared imputer/scaler)
+# ----------------------------------------------------------------------
+@st.cache_data
+def compute_model_comparison(_available_models_tuple):
+    """_available_models_tuple: tuple of (label, filepath) pairs so it's hashable for caching."""
+    available_models = dict(_available_models_tuple)
+
+    raw = pd.read_csv(RAW_PATH)
+    imputer = load_pickle(IMPUTER_FILE)
+    scaler = load_pickle(SCALER_FILE)
+
+    clean = raw.copy()
+    for c in ZERO_AS_MISSING_COLS:
+        clean[c] = clean[c].replace(0, np.nan)
+
+    X = clean[FEATURES]
+    y = clean[TARGET_COL]
+
+    X_imputed = pd.DataFrame(imputer.transform(X), columns=FEATURES)
+    X_scaled = pd.DataFrame(scaler.transform(X_imputed), columns=FEATURES)
+
+    _, X_test, _, y_test = train_test_split(
+        X_scaled, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y
+    )
+
+    rows = []
+    for label, filepath in available_models.items():
+        model = load_pickle(filepath)
+        y_pred = model.predict(X_test)
+        rows.append({
+            "Model": label,
+            "Accuracy": accuracy_score(y_test, y_pred),
+            "Precision": precision_score(y_test, y_pred),
+            "Recall": recall_score(y_test, y_pred),
+            "F1 Score": f1_score(y_test, y_pred),
+        })
+
+    return pd.DataFrame(rows).set_index("Model")
 
 # ----------------------------------------------------------------------
 # HISTORY HELPERS (persisted to a local CSV so it survives app restarts)
@@ -101,7 +147,7 @@ st.sidebar.caption(
     f"Detected models: {', '.join(available_models.keys())}"
 )
 
-page = st.sidebar.radio("Page", ["Predict", "Prediction History"])
+page = st.sidebar.radio("Page", ["Predict", "Compare Models", "Prediction History"])
 
 
 # ----------------------------------------------------------------------
@@ -258,7 +304,45 @@ if page == "Predict":
             "Age": age,
         })
 
+# ----------------------------------------------------------------------
+# PAGE: PREDICTION accuracy
+# ----------------------------------------------------------------------
+elif page == "Compare Models":
+    st.markdown("## 📊 Model Comparison")
+    st.caption(
+        "All available models are evaluated on the SAME held-out test set "
+        "(same 80/20 split, same shared imputer.pkl and scaler.pkl) so the "
+        "comparison below is fair."
+    )
 
+    if imputer is None or scaler is None:
+        st.error("imputer.pkl and scaler.pkl are required to run a fair comparison.")
+    else:
+        with st.spinner("Evaluating all available models..."):
+            comparison_df = compute_model_comparison(tuple(available_models.items()))
+
+        st.markdown("#### Metrics Table")
+        st.dataframe(comparison_df.style.format("{:.4f}"), use_container_width=True)
+
+        st.markdown("#### Metrics Bar Chart")
+        st.bar_chart(comparison_df)
+
+        st.markdown("#### Accuracy Only")
+        st.bar_chart(comparison_df[["Accuracy"]])
+
+        best_model = comparison_df["Accuracy"].idxmax()
+        st.success(
+            f"**{best_model}** has the highest accuracy "
+            f"({comparison_df.loc[best_model, 'Accuracy']:.4f})."
+        )
+
+        st.download_button(
+            "⬇️ Download comparison table as CSV",
+            data=comparison_df.round(4).to_csv().encode("utf-8"),
+            file_name="model_comparison.csv",
+            mime="text/csv"
+        )
+        
 # ----------------------------------------------------------------------
 # PAGE: PREDICTION HISTORY
 # ----------------------------------------------------------------------
