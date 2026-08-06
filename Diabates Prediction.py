@@ -6,8 +6,7 @@ import os
 from datetime import datetime
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score)
-from sklearn.metrics import auc, roc_curve 
-import plotly.graph_objects as go
+
 
 # ----------------------------------------------------------------------
 # PAGE CONFIG
@@ -337,72 +336,6 @@ elif page == "Compare Models":
             f"**{best_model}** has the highest accuracy "
             f"({comparison_df.loc[best_model, 'Accuracy']:.4f})."
         )
-
-        # --- Add Combined ROC Curve Plot ---
-        st.markdown("#### ROC Curve Comparison")
-
-        import plotly.graph_objects as go
-        from sklearn.metrics import auc, roc_curve
-
-        fig_roc = go.Figure()
-
-        # Add baseline
-        fig_roc.add_trace(
-            go.Scatter(
-                x=[0, 1],
-                y=[0, 1],
-                mode="lines",
-                line=dict(dash="dash", color="gray"),
-                name="Random Chance (AUC = 0.50)",
-            )
-        )
-
-        # Re-create the same test split used in compute_model_comparison
-        raw_df = pd.read_csv(RAW_PATH)
-        clean_df = raw_df.copy()
-        for col in ZERO_AS_MISSING_COLS:
-          clean_df[col] = clean_df[col].replace(0, np.nan)
-
-        X_data = clean_df[FEATURES]
-        y_data = clean_df[TARGET_COL]
-
-        X_imp = pd.DataFrame(imputer.transform(X_data), columns=FEATURES)
-        X_scl = pd.DataFrame(scaler.transform(X_imp), columns=FEATURES)
-
-        _, X_test_roc, _, y_test_roc = train_test_split(
-            X_scl, y_data, test_size=0.2, random_state=RANDOM_STATE, stratify=y_data
-        )
-
-        for model_label, model_filename in available_models.items():
-          loaded_model = load_pickle(model_filename)
-          if hasattr(loaded_model, "predict_proba"):
-            y_score = loaded_model.predict_proba(X_test_roc)[:, 1]
-          elif hasattr(loaded_model, "decision_function"):
-            y_score = loaded_model.decision_function(X_test_roc)
-          else:
-            y_score = loaded_model.predict(X_test_roc)
-
-          fpr, tpr, _ = roc_curve(y_test_roc, y_score)
-          roc_auc = auc(fpr, tpr)
-
-          fig_roc.add_trace(
-              go.Scatter(
-                  x=fpr,
-                  y=tpr,
-                  mode="lines",
-                  name=f"{model_label} (AUC = {roc_auc:.3f})",
-              )
-          )
-
-        fig_roc.update_layout(
-            title="ROC Curves for All Models",
-            xaxis_title="False Positive Rate",
-            yaxis_title="True Positive Rate",
-            width=700,
-            height=500,
-        )
-
-        st.plotly_chart(fig_roc, use_container_width=True)
 
         st.download_button(
             "⬇️ Download comparison table as CSV",
