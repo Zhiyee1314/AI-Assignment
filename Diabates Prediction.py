@@ -454,7 +454,7 @@ if page == "Predict":
 # PAGE: COMPARE MODELS
 # ----------------------------------------------------------------------
 elif page == "Compare Models":
-    st.markdown("#### 📊 Model Comparison")
+    st.markdown("## 📊 Model Comparison")
     st.caption(
         "All available models are evaluated on the SAME held-out test set "
         "(same 80/20 split, same shared imputer.pkl and scaler.pkl) so the "
@@ -467,27 +467,20 @@ elif page == "Compare Models":
         with st.spinner("Evaluating all available models..."):
             comparison_df = compute_model_comparison(tuple(available_models.items()))
 
-        best_model = comparison_df["Accuracy"].idxmax()
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Best Accuracy", best_model, f"{comparison_df.loc[best_model, 'Accuracy']:.1%}")
-        m2.metric("Best Recall", comparison_df["Recall"].idxmax(), f"{comparison_df['Recall'].max():.1%}")
-        m3.metric("Best Precision", comparison_df["Precision"].idxmax(), f"{comparison_df['Precision'].max():.1%}")
-        m4.metric("Best F1", comparison_df["F1 Score"].idxmax(), f"{comparison_df['F1 Score'].max():.1%}")
-
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown("##### Metrics Table")
+        st.markdown("#### Metrics Table")
         st.dataframe(comparison_df.style.format("{:.4f}"), use_container_width=True)
-        st.markdown("##### Metrics Bar Chart")
+
+        st.markdown("#### Metrics Bar Chart")
         st.bar_chart(comparison_df)
 
-        st.markdown("##### Accuracy Only")
+        st.markdown("#### Accuracy Only")
         st.bar_chart(comparison_df[["Accuracy"]])
 
+        best_model = comparison_df["Accuracy"].idxmax()
         st.success(
             f"**{best_model}** has the highest accuracy "
             f"({comparison_df.loc[best_model, 'Accuracy']:.4f})."
         )
-        st.markdown("</div>", unsafe_allow_html=True)
 
         st.download_button(
             "⬇️ Download comparison table as CSV",
@@ -495,6 +488,7 @@ elif page == "Compare Models":
             file_name="model_comparison.csv",
             mime="text/csv"
         )
+
 
 
 # ----------------------------------------------------------------------
