@@ -7,6 +7,8 @@ from datetime import datetime
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score)
 
+from styles import inject_global_css
+
 
 # ----------------------------------------------------------------------
 # PAGE CONFIG
@@ -50,134 +52,12 @@ MODEL_SUBTITLES = {
     "SVM": "Powered by a Support Vector Machine that finds the optimal boundary separating diabetic vs non-diabetic cases.",
     "KNN": "Powered by K-Nearest Neighbors, which predicts based on the most similar past patients in the dataset.",
 }
-
 MODEL_ACCENT = {
     "ANN": "#6C63FF",
     "SVM": "#FF6B6B",
     "KNN": "#22B07D",
 }
 
-
-
-# ----------------------------------------------------------------------
-# GLOBAL STYLE
-# ----------------------------------------------------------------------
-def inject_global_css(accent: str):
-    st.markdown(
-        f"""
-        <style>
-        .block-container {{
-            padding-top: 2rem;
-            padding-bottom: 3rem;
-            max-width: 1100px;
-        }}
-
-        /* Buttons take the current model's accent color */
-        .stButton > button {{
-            background-color: {accent};
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 0.55rem 1.4rem;
-            font-weight: 600;
-            transition: filter 0.15s ease;
-        }}
-        .stButton > button:hover {{
-            filter: brightness(1.08);
-            color: white;
-            border: none;
-        }}
-
-        /* Number inputs */
-        div[data-baseweb="input"] {{
-            border-radius: 8px;
-        }}
-
-        /* Section card */
-        .section-card {{
-            border: 1px solid rgba(150,150,150,0.25);
-            border-radius: 14px;
-            padding: 1.4rem 1.6rem 1.1rem 1.6rem;
-            margin-bottom: 1.2rem;
-            background: rgba(150,150,150,0.04);
-        }}
-        .section-card h4 {{
-            margin-top: 0;
-            margin-bottom: 1rem;
-        }}
-
-        /* Header banner */
-        .app-header {{
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            padding: 1.1rem 1.5rem;
-            border-radius: 14px;
-            background: linear-gradient(135deg, {accent}22, {accent}08);
-            border: 1px solid {accent}33;
-            margin-bottom: 1.5rem;
-        }}
-        .app-header .icon {{
-            font-size: 2.1rem;
-        }}
-        .app-header h2 {{
-            margin: 0;
-            color: {accent};
-            font-weight: 800;
-        }}
-        .app-header p {{
-            margin: 2px 0 0 0;
-            color: rgba(200,200,200,0.85);
-            font-size: 0.92rem;
-        }}
-
-        /* Result card */
-        .result-card {{
-            border-radius: 14px;
-            padding: 1.4rem 1.6rem;
-            margin-top: 0.6rem;
-            border: 1px solid rgba(150,150,150,0.25);
-            background: rgba(150,150,150,0.04);
-        }}
-        .result-title {{
-            font-size: 0.85rem;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            color: rgba(200,200,200,0.7);
-            margin-bottom: 6px;
-        }}
-        .result-label {{
-            font-size: 1.6rem;
-            font-weight: 800;
-            margin-bottom: 10px;
-        }}
-        .risk-bar-track {{
-            background: rgba(150,150,150,0.2);
-            border-radius: 999px;
-            height: 22px;
-            width: 100%;
-            overflow: hidden;
-        }}
-        .risk-bar-fill {{
-            height: 100%;
-            border-radius: 999px;
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            padding-right: 10px;
-            color: white;
-            font-weight: 700;
-            font-size: 0.78rem;
-        }}
-        .disclaimer {{
-            font-size: 0.8rem;
-            color: rgba(180,180,180,0.7);
-            margin-top: 0.6rem;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
 
 def render_header(model_choice: str):
     accent = MODEL_ACCENT.get(model_choice, "#888888")
@@ -219,8 +99,6 @@ def render_result_card(model_choice: str, prediction: int, proba: float, accent:
         """,
         unsafe_allow_html=True
     )
-
-
 
 
 # ----------------------------------------------------------------------
@@ -366,7 +244,6 @@ if imputer is None or scaler is None:
 # ----------------------------------------------------------------------
 if page == "Predict":
 
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown("#### 📝 Patient Information")
 
     if model_choice == "SVM":
@@ -386,7 +263,6 @@ if page == "Predict":
             pregnancies = st.number_input("Pregnancies", min_value=0, max_value=20, value=3, step=1)
             dpf = st.number_input("Diabetes Pedigree Function", min_value=0.0, max_value=3.0, value=0.51, step=0.01, format="%.2f")
 
-        st.markdown("</div>", unsafe_allow_html=True)
         run_clicked = st.button("🔎  Assess Risk", type="primary", use_container_width=True)
 
     else:
@@ -405,7 +281,6 @@ if page == "Predict":
             dpf = st.number_input("Diabetes Pedigree Function", min_value=0.0, max_value=3.0, value=0.51, step=0.01, format="%.2f")
             age = st.number_input("Age", min_value=1, max_value=120, value=35, step=1)
 
-        st.markdown("</div>", unsafe_allow_html=True)
         run_clicked = st.button("🩺  Predict", type="primary", use_container_width=True)
 
     if run_clicked:
@@ -457,7 +332,7 @@ if page == "Predict":
 # PAGE: COMPARE MODELS
 # ----------------------------------------------------------------------
 elif page == "Compare Models":
-    st.markdown("## 📊 Model Comparison")
+    st.markdown("#### 📊 Model Comparison")
     st.caption(
         "All available models are evaluated on the SAME held-out test set "
         "(same 80/20 split, same shared imputer.pkl and scaler.pkl) so the "
@@ -470,20 +345,27 @@ elif page == "Compare Models":
         with st.spinner("Evaluating all available models..."):
             comparison_df = compute_model_comparison(tuple(available_models.items()))
 
-        st.markdown("#### Metrics Table")
-        st.dataframe(comparison_df.style.format("{:.4f}"), use_container_width=True)
+        best_model = comparison_df["Accuracy"].idxmax()
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Best Accuracy", best_model, f"{comparison_df.loc[best_model, 'Accuracy']:.1%}")
+        m2.metric("Best Recall", comparison_df["Recall"].idxmax(), f"{comparison_df['Recall'].max():.1%}")
+        m3.metric("Best Precision", comparison_df["Precision"].idxmax(), f"{comparison_df['Precision'].max():.1%}")
+        m4.metric("Best F1", comparison_df["F1 Score"].idxmax(), f"{comparison_df['F1 Score'].max():.1%}")
 
-        st.markdown("#### Metrics Bar Chart")
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown("##### Metrics Table")
+        st.dataframe(comparison_df.style.format("{:.4f}"), use_container_width=True)
+        st.markdown("##### Metrics Bar Chart")
         st.bar_chart(comparison_df)
 
-        st.markdown("#### Accuracy Only")
+        st.markdown("##### Accuracy Only")
         st.bar_chart(comparison_df[["Accuracy"]])
 
-        best_model = comparison_df["Accuracy"].idxmax()
         st.success(
             f"**{best_model}** has the highest accuracy "
             f"({comparison_df.loc[best_model, 'Accuracy']:.4f})."
         )
+        st.markdown("</div>", unsafe_allow_html=True)
 
         st.download_button(
             "⬇️ Download comparison table as CSV",
@@ -491,7 +373,6 @@ elif page == "Compare Models":
             file_name="model_comparison.csv",
             mime="text/csv"
         )
-
 
 
 # ----------------------------------------------------------------------
