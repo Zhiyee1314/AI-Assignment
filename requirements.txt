@@ -5,4 +5,3 @@ scikit-learn
 pandas
 numpy
 tabulate
-plotly.graph_objects
