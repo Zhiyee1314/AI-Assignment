@@ -345,7 +345,7 @@ elif page == "Compare Models":
 
         fig_roc = go.Figure()
 
-        # Diagonal baseline
+        # Add baseline
         fig_roc.add_trace(
             go.Scatter(
                 x=[0, 1],
@@ -356,17 +356,32 @@ elif page == "Compare Models":
             )
         )
 
-        X_test_comp, y_test_comp = load_test_data(imputer, scaler)
+        # Re-create the same test split used in compute_model_comparison
+        raw_df = pd.read_csv(RAW_PATH)
+        clean_df = raw_df.copy()
+        for col in ZERO_AS_MISSING_COLS:
+          clean_df[col] = clean_df[col].replace(0, np.nan)
 
-        for model_name, model in available_models.items():
-          if hasattr(model, "predict_proba"):
-            y_score = model.predict_proba(X_test_comp)[:, 1]
-          elif hasattr(model, "decision_function"):
-            y_score = model.decision_function(X_test_comp)
+        X_data = clean_df[FEATURES]
+        y_data = clean_df[TARGET_COL]
+
+        X_imp = pd.DataFrame(imputer.transform(X_data), columns=FEATURES)
+        X_scl = pd.DataFrame(scaler.transform(X_imp), columns=FEATURES)
+
+        _, X_test_roc, _, y_test_roc = train_test_split(
+            X_scl, y_data, test_size=0.2, random_state=RANDOM_STATE, stratify=y_data
+        )
+
+        for model_label, model_filename in available_models.items():
+          loaded_model = load_pickle(model_filename)
+          if hasattr(loaded_model, "predict_proba"):
+            y_score = loaded_model.predict_proba(X_test_roc)[:, 1]
+          elif hasattr(loaded_model, "decision_function"):
+            y_score = loaded_model.decision_function(X_test_roc)
           else:
-            y_score = model.predict(X_test_comp)
+            y_score = loaded_model.predict(X_test_roc)
 
-          fpr, tpr, _ = roc_curve(y_test_comp, y_score)
+          fpr, tpr, _ = roc_curve(y_test_roc, y_score)
           roc_auc = auc(fpr, tpr)
 
           fig_roc.add_trace(
@@ -374,7 +389,7 @@ elif page == "Compare Models":
                   x=fpr,
                   y=tpr,
                   mode="lines",
-                  name=f"{model_name} (AUC = {roc_auc:.3f})",
+                  name=f"{model_label} (AUC = {roc_auc:.3f})",
               )
           )
 
