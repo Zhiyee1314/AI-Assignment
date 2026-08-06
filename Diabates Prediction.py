@@ -27,6 +27,7 @@ RAW_PATH = "diabetes.csv"
 RANDOM_STATE = 42
 
 # Map: dropdown label -> model file on disk
+# Add new members' models here (or auto-detected below)
 MODEL_FILES = {
     "ANN": "ann_model.pkl",
     "SVM": "svm_model.pkl",
@@ -37,187 +38,9 @@ IMPUTER_FILE = "imputer.pkl"
 SCALER_FILE = "scaler.pkl"
 HISTORY_FILE = "prediction_history.csv"
 
+
+# Columns where a 0 actually means "missing" (matches your training script)
 ZERO_AS_MISSING_COLS = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
-
-MODEL_TITLES = {
-    "ANN": "ANN Diabetes Risk Predictor",
-    "SVM": "SVM Diabetes Risk Predictor",
-    "KNN": "KNN Diabetes Risk Predictor",
-}
-MODEL_ICONS = {"ANN": "🧠", "SVM": "📈", "KNN": "👥"}
-MODEL_SUBTITLES = {
-    "ANN": "Powered by a Multilayer Perceptron (Neural Network) that learns non-linear patterns between health features.",
-    "SVM": "Powered by a Support Vector Machine that finds the optimal boundary separating diabetic vs non-diabetic cases.",
-    "KNN": "Powered by K-Nearest Neighbors, which predicts based on the most similar past patients in the dataset.",
-}
-MODEL_ACCENT = {
-    "ANN": "#6C63FF",
-    "SVM": "#FF6B6B",
-    "KNN": "#22B07D",
-}
-
-
-# ----------------------------------------------------------------------
-# GLOBAL STYLE
-# ----------------------------------------------------------------------
-def inject_global_css(accent: str):
-    st.markdown(
-        f"""
-        <style>
-        .block-container {{
-            padding-top: 2rem;
-            padding-bottom: 3rem;
-            max-width: 1100px;
-        }}
-
-        /* Buttons take the current model's accent color */
-        .stButton > button {{
-            background-color: {accent};
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 0.55rem 1.4rem;
-            font-weight: 600;
-            transition: filter 0.15s ease;
-        }}
-        .stButton > button:hover {{
-            filter: brightness(1.08);
-            color: white;
-            border: none;
-        }}
-
-        /* Number inputs */
-        div[data-baseweb="input"] {{
-            border-radius: 8px;
-        }}
-
-        /* Section card */
-        .section-card {{
-            border: 1px solid rgba(150,150,150,0.25);
-            border-radius: 14px;
-            padding: 1.4rem 1.6rem 1.1rem 1.6rem;
-            margin-bottom: 1.2rem;
-            background: rgba(150,150,150,0.04);
-        }}
-        .section-card h4 {{
-            margin-top: 0;
-            margin-bottom: 1rem;
-        }}
-
-        /* Header banner */
-        .app-header {{
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            padding: 1.1rem 1.5rem;
-            border-radius: 14px;
-            background: linear-gradient(135deg, {accent}22, {accent}08);
-            border: 1px solid {accent}33;
-            margin-bottom: 1.5rem;
-        }}
-        .app-header .icon {{
-            font-size: 2.1rem;
-        }}
-        .app-header h2 {{
-            margin: 0;
-            color: {accent};
-            font-weight: 800;
-        }}
-        .app-header p {{
-            margin: 2px 0 0 0;
-            color: rgba(200,200,200,0.85);
-            font-size: 0.92rem;
-        }}
-
-        /* Result card */
-        .result-card {{
-            border-radius: 14px;
-            padding: 1.4rem 1.6rem;
-            margin-top: 0.6rem;
-            border: 1px solid rgba(150,150,150,0.25);
-            background: rgba(150,150,150,0.04);
-        }}
-        .result-title {{
-            font-size: 0.85rem;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            color: rgba(200,200,200,0.7);
-            margin-bottom: 6px;
-        }}
-        .result-label {{
-            font-size: 1.6rem;
-            font-weight: 800;
-            margin-bottom: 10px;
-        }}
-        .risk-bar-track {{
-            background: rgba(150,150,150,0.2);
-            border-radius: 999px;
-            height: 22px;
-            width: 100%;
-            overflow: hidden;
-        }}
-        .risk-bar-fill {{
-            height: 100%;
-            border-radius: 999px;
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            padding-right: 10px;
-            color: white;
-            font-weight: 700;
-            font-size: 0.78rem;
-        }}
-        .disclaimer {{
-            font-size: 0.8rem;
-            color: rgba(180,180,180,0.7);
-            margin-top: 0.6rem;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-def render_header(model_choice: str):
-    accent = MODEL_ACCENT.get(model_choice, "#888888")
-    icon = MODEL_ICONS.get(model_choice, "🩺")
-    title_text = MODEL_TITLES.get(model_choice, "Diabetes Risk Predictor")
-    subtitle_text = MODEL_SUBTITLES.get(model_choice, "Enter the patient's health information below.")
-    st.markdown(
-        f"""
-        <div class="app-header">
-            <div class="icon">{icon}</div>
-            <div>
-                <h2>{title_text}</h2>
-                <p>{subtitle_text}</p>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-    return accent
-
-
-def render_result_card(model_choice: str, prediction: int, proba: float, accent: str):
-    risk_pct = proba * 100
-    is_high = prediction == 1
-    bar_color = "#E5484D" if is_high else "#22B07D"
-    label = "⚠️ High Risk of Diabetes" if is_high else "✅ Low Risk of Diabetes"
-    st.markdown(
-        f"""
-        <div class="result-card">
-            <div class="result-title">Risk Assessment · {model_choice}</div>
-            <div class="result-label" style="color:{bar_color}">{label}</div>
-            <div class="risk-bar-track">
-                <div class="risk-bar-fill" style="width:{risk_pct:.1f}%;background:{bar_color};">
-                    {risk_pct:.1f}%
-                </div>
-            </div>
-            <div class="disclaimer">This is a machine learning prediction for educational purposes only, not a medical diagnosis.</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
 
 # ----------------------------------------------------------------------
@@ -243,7 +66,6 @@ def get_shared_preprocessors():
     imputer = load_pickle(IMPUTER_FILE) if os.path.exists(IMPUTER_FILE) else None
     scaler = load_pickle(SCALER_FILE) if os.path.exists(SCALER_FILE) else None
     return imputer, scaler
-
 
 # ----------------------------------------------------------------------
 # MODEL COMPARISON HELPERS (evaluates every available model on the
@@ -286,7 +108,6 @@ def compute_model_comparison(_available_models_tuple):
 
     return pd.DataFrame(rows).set_index("Model")
 
-
 # ----------------------------------------------------------------------
 # HISTORY HELPERS (persisted to a local CSV so it survives app restarts)
 # ----------------------------------------------------------------------
@@ -306,47 +127,58 @@ def save_history_row(row: dict):
 # ----------------------------------------------------------------------
 # SIDEBAR: MODEL SELECTION
 # ----------------------------------------------------------------------
-with st.sidebar:
-    st.markdown("### ⚙️ Settings")
+st.sidebar.title("⚙️ Settings")
 
-    available_models = get_available_models()
+available_models = get_available_models()
 
-    if not available_models:
-        st.error(
-            "No model .pkl files found in this folder.\n\n"
-            "Expected one or more of: " + ", ".join(MODEL_FILES.values())
-        )
-        st.stop()
-
-    model_choice = st.selectbox(
-        "Choose prediction model",
-        options=list(available_models.keys()),
-        format_func=lambda m: f"{MODEL_ICONS.get(m, '')}  {m}",
-        help="Only models whose .pkl file is present in the app folder show up here."
+if not available_models:
+    st.sidebar.error(
+        "No model .pkl files found in this folder.\n\n"
+        "Expected one or more of: " + ", ".join(MODEL_FILES.values())
     )
+    st.stop()
 
-    st.caption(f"Detected models: {', '.join(available_models.keys())}")
-    st.divider()
+model_choice = st.sidebar.selectbox(
+    "Choose prediction model",
+    options=list(available_models.keys()),
+    help="Only models whose .pkl file is present in the app folder show up here."
+)
 
-    page = st.radio(
-        "Page",
-        ["Predict", "Compare Models", "Prediction History"],
-        format_func=lambda p: {
-            "Predict": "🩺  Predict",
-            "Compare Models": "📊  Compare Models",
-            "Prediction History": "📋  Prediction History",
-        }[p]
-    )
+st.sidebar.caption(
+    f"Detected models: {', '.join(available_models.keys())}"
+)
+
+page = st.sidebar.radio("Page", ["Predict", "Compare Models", "Prediction History"])
 
 
 # ----------------------------------------------------------------------
-# GLOBAL CSS + HEADER
+# HEADER (changes title/description depending on the selected model)
 # ----------------------------------------------------------------------
-accent = render_header(model_choice)  # also returns accent, but we set CSS first below
+MODEL_TITLES = {
+    "ANN": "🧠 ANN Diabetes Risk Predictor",
+    "SVM": "📈 SVM Diabetes Risk Predictor",
+    "KNN": "👥 KNN Diabetes Risk Predictor",
+}
+MODEL_SUBTITLES = {
+    "ANN": "Powered by a Multilayer Perceptron (Neural Network) that learns non-linear patterns between health features.",
+    "SVM": "Powered by a Support Vector Machine that finds the optimal boundary separating diabetic vs non-diabetic cases.",
+    "KNN": "Powered by K-Nearest Neighbors, which predicts based on the most similar past patients in the dataset.",
+}
+MODEL_ACCENT = {
+    "ANN": "#6C63FF",
+    "SVM": "#FF6B6B",
+    "KNN": "#22B07D",
+}
+
+title_text = MODEL_TITLES.get(model_choice, "🩺 Diabetes Risk Predictor")
+subtitle_text = MODEL_SUBTITLES.get(model_choice, "Enter the patient's health information below.")
 accent = MODEL_ACCENT.get(model_choice, "#888888")
-inject_global_css(accent)
-# render_header already printed the banner using markdown above; CSS applies retroactively
-# since Streamlit renders CSS globally regardless of injection order in the script.
+
+st.markdown(
+    f"<h2 style='color:{accent};margin-bottom:0'>{title_text}</h2>",
+    unsafe_allow_html=True
+)
+st.caption(subtitle_text)
 
 imputer, scaler = get_shared_preprocessors()
 
@@ -363,12 +195,9 @@ if imputer is None or scaler is None:
 # ----------------------------------------------------------------------
 if page == "Predict":
 
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown("#### 📝 Patient Information")
-
     if model_choice == "SVM":
         # ---- Similar structure to ANN (two-column number inputs), but
-        # ---- with a different field grouping/order and button label ----
+        # ---- with a different field grouping/order and result style ----
         col1, col2 = st.columns(2)
 
         with col1:
@@ -383,11 +212,10 @@ if page == "Predict":
             pregnancies = st.number_input("Pregnancies", min_value=0, max_value=20, value=3, step=1)
             dpf = st.number_input("Diabetes Pedigree Function", min_value=0.0, max_value=3.0, value=0.51, step=0.01, format="%.2f")
 
-        st.markdown("</div>", unsafe_allow_html=True)
-        run_clicked = st.button("🔎  Assess Risk", type="primary", use_container_width=True)
+        run_clicked = st.button("🔎 Assess Risk", type="primary")
 
     else:
-        # ---- Layout for ANN / KNN ----
+        # ---- Original layout for ANN / KNN ----
         col1, col2 = st.columns(2)
 
         with col1:
@@ -402,8 +230,7 @@ if page == "Predict":
             dpf = st.number_input("Diabetes Pedigree Function", min_value=0.0, max_value=3.0, value=0.51, step=0.01, format="%.2f")
             age = st.number_input("Age", min_value=1, max_value=120, value=35, step=1)
 
-        st.markdown("</div>", unsafe_allow_html=True)
-        run_clicked = st.button("🩺  Predict", type="primary", use_container_width=True)
+        run_clicked = st.button("Predict", type="primary")
 
     if run_clicked:
         model_path = available_models[model_choice]
@@ -427,12 +254,41 @@ if page == "Predict":
         X = input_df
 
         prediction = model.predict(X)[0]
+        # Probability of the positive (diabetic) class
         if hasattr(model, "predict_proba"):
             proba = model.predict_proba(X)[0][1]
         else:
+            # Fallback for models without predict_proba (e.g. some SVM configs)
             proba = float(prediction)
 
-        render_result_card(model_choice, int(prediction), float(proba), accent)
+        if model_choice == "SVM":
+            # ---- Distinct SVM result: gauge-style progress bar instead
+            # ---- of the st.error/st.success banner used by ANN/KNN ----
+            st.write("")
+            st.markdown("#### Risk Assessment Result")
+            risk_pct = proba * 100
+            bar_color = "#FF6B6B" if prediction == 1 else "#22B07D"
+            st.markdown(
+                f"""
+                <div style="background:#eee;border-radius:8px;height:28px;width:100%;overflow:hidden;">
+                  <div style="background:{bar_color};height:100%;width:{risk_pct:.1f}%;
+                       display:flex;align-items:center;justify-content:flex-end;padding-right:8px;
+                       color:white;font-weight:600;font-size:13px;">
+                       {risk_pct:.1f}%
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            label = "HIGH RISK" if prediction == 1 else "LOW RISK"
+            st.markdown(f"**Classification:** :{'red' if prediction == 1 else 'green'}[{label}]")
+        else:
+            if prediction == 1:
+                st.error(f"⚠️ High Risk of Diabetes (probability: {proba*100:.1f}%)")
+            else:
+                st.success(f"✅ Low Risk of Diabetes (probability: {proba*100:.1f}%)")
+
+        st.caption("This is a machine learning prediction for educational purposes only, not a medical diagnosis.")
 
         save_history_row({
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -449,12 +305,11 @@ if page == "Predict":
             "Age": age,
         })
 
-
 # ----------------------------------------------------------------------
-# PAGE: COMPARE MODELS
+# PAGE: PREDICTION accuracy
 # ----------------------------------------------------------------------
 elif page == "Compare Models":
-    st.markdown("#### 📊 Model Comparison")
+    st.markdown("## 📊 Model Comparison")
     st.caption(
         "All available models are evaluated on the SAME held-out test set "
         "(same 80/20 split, same shared imputer.pkl and scaler.pkl) so the "
@@ -467,27 +322,20 @@ elif page == "Compare Models":
         with st.spinner("Evaluating all available models..."):
             comparison_df = compute_model_comparison(tuple(available_models.items()))
 
-        best_model = comparison_df["Accuracy"].idxmax()
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Best Accuracy", best_model, f"{comparison_df.loc[best_model, 'Accuracy']:.1%}")
-        m2.metric("Best Recall", comparison_df["Recall"].idxmax(), f"{comparison_df['Recall'].max():.1%}")
-        m3.metric("Best Precision", comparison_df["Precision"].idxmax(), f"{comparison_df['Precision'].max():.1%}")
-        m4.metric("Best F1", comparison_df["F1 Score"].idxmax(), f"{comparison_df['F1 Score'].max():.1%}")
-
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown("##### Metrics Table")
+        st.markdown("#### Metrics Table")
         st.dataframe(comparison_df.style.format("{:.4f}"), use_container_width=True)
-        st.markdown("##### Metrics Bar Chart")
+
+        st.markdown("#### Metrics Bar Chart")
         st.bar_chart(comparison_df)
 
-        st.markdown("##### Accuracy Only")
+        st.markdown("#### Accuracy Only")
         st.bar_chart(comparison_df[["Accuracy"]])
 
+        best_model = comparison_df["Accuracy"].idxmax()
         st.success(
             f"**{best_model}** has the highest accuracy "
             f"({comparison_df.loc[best_model, 'Accuracy']:.4f})."
         )
-        st.markdown("</div>", unsafe_allow_html=True)
 
         st.download_button(
             "⬇️ Download comparison table as CSV",
@@ -495,41 +343,43 @@ elif page == "Compare Models":
             file_name="model_comparison.csv",
             mime="text/csv"
         )
-
-
+        
 # ----------------------------------------------------------------------
 # PAGE: PREDICTION HISTORY
-# (Decorative bar charts removed per instructor feedback -- table +
-#  CSV export are the only elements kept, since those are actually useful.)
 # ----------------------------------------------------------------------
 else:
-    st.markdown("#### 📋 Prediction History")
+    st.markdown("### 📊 Prediction History")
 
     history = load_history()
 
     if history.empty:
         st.info("No predictions yet. Go to the Predict page and run one first.")
     else:
-        colA, colB = st.columns([3, 1])
+        colA, colB = st.columns([1, 1])
         with colA:
             model_filter = st.multiselect(
                 "Filter by model", options=sorted(history["model"].unique()),
                 default=sorted(history["model"].unique())
             )
         with colB:
-            st.write("")
-            st.write("")
-            if st.button("🗑️ Clear history", use_container_width=True):
+            if st.button("🗑️ Clear history"):
                 if os.path.exists(HISTORY_FILE):
                     os.remove(HISTORY_FILE)
                 st.rerun()
 
         filtered = history[history["model"].isin(model_filter)]
 
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown("##### Raw History Table")
-        st.dataframe(filtered.sort_values("timestamp", ascending=False), use_container_width=True, hide_index=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("#### Risk outcome count per model")
+        chart_data = (
+            filtered.groupby(["model", "prediction"]).size().unstack(fill_value=0)
+        )
+        st.bar_chart(chart_data)
+
+        st.markdown("#### Probability per prediction (most recent last)")
+        st.bar_chart(filtered.set_index(filtered.index)["probability"])
+
+        st.markdown("#### Raw history table")
+        st.dataframe(filtered.sort_values("timestamp", ascending=False), use_container_width=True)
 
         st.download_button(
             "⬇️ Download history as CSV",
