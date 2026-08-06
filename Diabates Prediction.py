@@ -223,9 +223,11 @@ with st.sidebar:
 # ----------------------------------------------------------------------
 # GLOBAL CSS + HEADER
 # ----------------------------------------------------------------------
-accent = render_header(model_choice)
 accent = MODEL_ACCENT.get(model_choice, "#888888")
 inject_global_css(accent)
+
+if page == "Predict":
+    render_header(model_choice)
 
 imputer, scaler = get_shared_preprocessors()
 
