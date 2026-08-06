@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score)
+from sklearn.metrics import auc, roc_curve 
 
 # ----------------------------------------------------------------------
 # PAGE CONFIG
@@ -335,6 +336,57 @@ elif page == "Compare Models":
             f"**{best_model}** has the highest accuracy "
             f"({comparison_df.loc[best_model, 'Accuracy']:.4f})."
         )
+
+        # --- Add Combined ROC Curve Plot ---
+        st.markdown("#### ROC Curve Comparison")
+
+        import plotly.graph_objects as go
+        from sklearn.metrics import auc, roc_curve
+
+        fig_roc = go.Figure()
+
+        # Diagonal baseline
+        fig_roc.add_trace(
+            go.Scatter(
+                x=[0, 1],
+                y=[0, 1],
+                mode="lines",
+                line=dict(dash="dash", color="gray"),
+                name="Random Chance (AUC = 0.50)",
+            )
+        )
+
+        X_test_comp, y_test_comp = load_test_data(imputer, scaler)
+
+        for model_name, model in available_models.items():
+          if hasattr(model, "predict_proba"):
+            y_score = model.predict_proba(X_test_comp)[:, 1]
+          elif hasattr(model, "decision_function"):
+            y_score = model.decision_function(X_test_comp)
+          else:
+            y_score = model.predict(X_test_comp)
+
+          fpr, tpr, _ = roc_curve(y_test_comp, y_score)
+          roc_auc = auc(fpr, tpr)
+
+          fig_roc.add_trace(
+              go.Scatter(
+                  x=fpr,
+                  y=tpr,
+                  mode="lines",
+                  name=f"{model_name} (AUC = {roc_auc:.3f})",
+              )
+          )
+
+        fig_roc.update_layout(
+            title="ROC Curves for All Models",
+            xaxis_title="False Positive Rate",
+            yaxis_title="True Positive Rate",
+            width=700,
+            height=500,
+        )
+
+        st.plotly_chart(fig_roc, use_container_width=True)
 
         st.download_button(
             "⬇️ Download comparison table as CSV",
