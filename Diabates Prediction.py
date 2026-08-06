@@ -33,8 +33,6 @@ MODEL_FILES = {
     "ANN": "ann_model.pkl",
     "SVM": "svm_model.pkl",
     "KNN": "knn_model.pkl",
-    "Random Forest (Best)": "random_forest_model.pkl",
-    "Extra Trees": "extra_trees_model.pkl",
 }
 
 IMPUTER_FILE = "imputer.pkl"
