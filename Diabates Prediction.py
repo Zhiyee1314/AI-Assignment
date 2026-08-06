@@ -51,6 +51,12 @@ MODEL_SUBTITLES = {
     "KNN": "Powered by K-Nearest Neighbors, which predicts based on the most similar past patients in the dataset.",
 }
 
+MODEL_ACCENT = {
+    "ANN": "#6C63FF",
+    "SVM": "#FF6B6B",
+    "KNN": "#22B07D",
+}
+
 
 
 # ----------------------------------------------------------------------
