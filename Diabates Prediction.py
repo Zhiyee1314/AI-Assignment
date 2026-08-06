@@ -7,7 +7,8 @@ from datetime import datetime
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score)
 
-from styles import inject_global_css
+# 1. 修改 CSS 匯入路徑 (指向 CSS/ 資料夾)
+from CSS.styles import inject_global_css
 
 
 # ----------------------------------------------------------------------
@@ -25,18 +26,20 @@ FEATURES = [
 ]
 
 TARGET_COL = "Outcome"
-RAW_PATH = "diabetes.csv"
+
+# 2. 修改數據集與模型的相對路徑 (指向 data/ 與 models/ 資料夾)
+RAW_PATH = "data/diabetes.csv"
 RANDOM_STATE = 42
 
 # Map: dropdown label -> model file on disk
 MODEL_FILES = {
-    "ANN": "ann_model.pkl",
-    "SVM": "svm_model.pkl",
-    "KNN": "knn_model.pkl",
+    "ANN": "models/ann_model.pkl",
+    "SVM": "models/svm_model.pkl",
+    "KNN": "models/knn_model.pkl",
 }
 
-IMPUTER_FILE = "imputer.pkl"
-SCALER_FILE = "scaler.pkl"
+IMPUTER_FILE = "models/imputer.pkl"
+SCALER_FILE = "models/scaler.pkl"
 HISTORY_FILE = "prediction_history.csv"
 
 ZERO_AS_MISSING_COLS = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
@@ -110,9 +113,7 @@ def load_pickle(path):
 
 
 def get_available_models():
-    """Only list models whose .pkl file actually exists in the folder.
-    This is what lets teammates just drop svm_model.pkl / knn_model.pkl
-    into the same folder with zero code changes."""
+    """Only list models whose .pkl file actually exists in models/ folder."""
     available = {}
     for label, filename in MODEL_FILES.items():
         if os.path.exists(filename):
@@ -127,8 +128,7 @@ def get_shared_preprocessors():
 
 
 # ----------------------------------------------------------------------
-# MODEL COMPARISON HELPERS (evaluates every available model on the
-# SAME held-out test set, using the SAME shared imputer/scaler)
+# MODEL COMPARISON HELPERS
 # ----------------------------------------------------------------------
 @st.cache_data
 def compute_model_comparison(_available_models_tuple):
@@ -169,7 +169,7 @@ def compute_model_comparison(_available_models_tuple):
 
 
 # ----------------------------------------------------------------------
-# HISTORY HELPERS (persisted to a local CSV so it survives app restarts)
+# HISTORY HELPERS
 # ----------------------------------------------------------------------
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -194,7 +194,7 @@ with st.sidebar:
 
     if not available_models:
         st.error(
-            "No model .pkl files found in this folder.\n\n"
+            "No model .pkl files found in models/ folder.\n\n"
             "Expected one or more of: " + ", ".join(MODEL_FILES.values())
         )
         st.stop()
@@ -203,7 +203,7 @@ with st.sidebar:
         "Choose prediction model",
         options=list(available_models.keys()),
         format_func=lambda m: f"{MODEL_ICONS.get(m, '')}  {m}",
-        help="Only models whose .pkl file is present in the app folder show up here."
+        help="Only models whose .pkl file is present in models/ show up here."
     )
 
     st.caption(f"Detected models: {', '.join(available_models.keys())}")
@@ -223,19 +223,16 @@ with st.sidebar:
 # ----------------------------------------------------------------------
 # GLOBAL CSS + HEADER
 # ----------------------------------------------------------------------
-accent = render_header(model_choice)  # also returns accent, but we set CSS first below
+accent = render_header(model_choice)
 accent = MODEL_ACCENT.get(model_choice, "#888888")
 inject_global_css(accent)
-# render_header already printed the banner using markdown above; CSS applies retroactively
-# since Streamlit renders CSS globally regardless of injection order in the script.
 
 imputer, scaler = get_shared_preprocessors()
 
 if imputer is None or scaler is None:
     st.warning(
-        "`imputer.pkl` and/or `scaler.pkl` not found. Predictions will run on raw "
-        "input values without the shared preprocessing your team agreed on. "
-        "Make sure both files sit in the same folder as app.py."
+        "`imputer.pkl` and/or `scaler.pkl` not found in `models/`. Predictions will run on raw "
+        "input values without the shared preprocessing your team agreed on."
     )
 
 
@@ -247,8 +244,6 @@ if page == "Predict":
     st.markdown("#### 📝 Patient Information")
 
     if model_choice == "SVM":
-        # ---- Similar structure to ANN (two-column number inputs), but
-        # ---- with a different field grouping/order and button label ----
         col1, col2 = st.columns(2)
 
         with col1:
@@ -266,7 +261,6 @@ if page == "Predict":
         run_clicked = st.button("🔎  Assess Risk", type="primary", use_container_width=True)
 
     else:
-        # ---- Layout for ANN / KNN ----
         col1, col2 = st.columns(2)
 
         with col1:
@@ -292,7 +286,6 @@ if page == "Predict":
             columns=FEATURES
         )
 
-        # Treat 0s as missing in the same columns used during training
         for c in ZERO_AS_MISSING_COLS:
             if input_df.loc[0, c] == 0:
                 input_df.loc[0, c] = None
@@ -340,7 +333,7 @@ elif page == "Compare Models":
     )
 
     if imputer is None or scaler is None:
-        st.error("imputer.pkl and scaler.pkl are required to run a fair comparison.")
+        st.error("imputer.pkl and scaler.pkl are required in models/ to run a fair comparison.")
     else:
         with st.spinner("Evaluating all available models..."):
             comparison_df = compute_model_comparison(tuple(available_models.items()))
@@ -368,12 +361,8 @@ elif page == "Compare Models":
         )
 
 
-
-
 # ----------------------------------------------------------------------
 # PAGE: PREDICTION HISTORY
-# (Decorative bar charts removed per instructor feedback -- table +
-#  CSV export are the only elements kept, since those are actually useful.)
 # ----------------------------------------------------------------------
 else:
     st.markdown("#### 📋 Prediction History")
@@ -399,10 +388,8 @@ else:
 
         filtered = history[history["model"].isin(model_filter)]
 
-        
         st.markdown("##### Raw History Table")
         st.dataframe(filtered.sort_values("timestamp", ascending=False), use_container_width=True, hide_index=True)
-        st.markdown("</div>", unsafe_allow_html=True)
 
         st.download_button(
             "⬇️ Download history as CSV",
