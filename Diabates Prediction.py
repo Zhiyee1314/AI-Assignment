@@ -399,7 +399,7 @@ else:
 
         filtered = history[history["model"].isin(model_filter)]
 
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        
         st.markdown("##### Raw History Table")
         st.dataframe(filtered.sort_values("timestamp", ascending=False), use_container_width=True, hide_index=True)
         st.markdown("</div>", unsafe_allow_html=True)
