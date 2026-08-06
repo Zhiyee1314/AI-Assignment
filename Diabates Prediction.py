@@ -180,46 +180,6 @@ def inject_global_css(accent: str):
     )
 
 
-def render_header(model_choice: str):
-    accent = MODEL_ACCENT.get(model_choice, "#888888")
-    icon = MODEL_ICONS.get(model_choice, "🩺")
-    title_text = MODEL_TITLES.get(model_choice, "Diabetes Risk Predictor")
-    subtitle_text = MODEL_SUBTITLES.get(model_choice, "Enter the patient's health information below.")
-    st.markdown(
-        f"""
-        <div class="app-header">
-            <div class="icon">{icon}</div>
-            <div>
-                <h2>{title_text}</h2>
-                <p>{subtitle_text}</p>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-    return accent
-
-
-def render_result_card(model_choice: str, prediction: int, proba: float, accent: str):
-    risk_pct = proba * 100
-    is_high = prediction == 1
-    bar_color = "#E5484D" if is_high else "#22B07D"
-    label = "⚠️ High Risk of Diabetes" if is_high else "✅ Low Risk of Diabetes"
-    st.markdown(
-        f"""
-        <div class="result-card">
-            <div class="result-title">Risk Assessment · {model_choice}</div>
-            <div class="result-label" style="color:{bar_color}">{label}</div>
-            <div class="risk-bar-track">
-                <div class="risk-bar-fill" style="width:{risk_pct:.1f}%;background:{bar_color};">
-                    {risk_pct:.1f}%
-                </div>
-            </div>
-            <div class="disclaimer">This is a machine learning prediction for educational purposes only, not a medical diagnosis.</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
 
 # ----------------------------------------------------------------------
