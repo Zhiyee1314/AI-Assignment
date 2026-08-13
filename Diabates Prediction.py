@@ -28,7 +28,7 @@ FEATURES = [
 TARGET_COL = "Outcome"
 
 # 2. 修改數據集與模型的相對路徑 (指向 data/ 與 models/ 資料夾)
-RAW_PATH = "data/diabetes.csv"
+RAW_PATH = "Data/diabetes.csv"
 RANDOM_STATE = 42
 
 # Map: dropdown label -> model file on disk
