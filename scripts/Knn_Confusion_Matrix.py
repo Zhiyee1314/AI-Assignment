@@ -1,7 +1,12 @@
 """
 knn_confusion_matrix.py
 ------------------------
-Generates the Confusion Matrix heatmap for your KNN model.
+Generates the Confusion Matrix heatmap for your KNN model, styled to
+match a reference format:
+  - Green-to-yellow color scale
+  - Each cell shows percentage (column-normalized) + raw count
+  - Y-axis = Predicted Labels, X-axis = Actual Labels
+  - Accuracy shown in the title
 
 Loads your already-trained knn_model.pkl + the shared imputer.pkl
 and scaler.pkl, evaluates on the same test split, and saves the
@@ -38,6 +43,7 @@ FEATURE_ORDER = [
 TARGET_COL = "Outcome"
 ZERO_AS_MISSING_COLS = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
 RANDOM_STATE = 42
+CLASS_LABELS = ["No Diabetes", "Diabetes"]
 
 
 def main():
@@ -72,34 +78,53 @@ def main():
     y_pred = model.predict(X_test)
 
     acc = accuracy_score(y_test, y_pred)
+
+    # cm[i][j] = actual class i, predicted class j
     cm = confusion_matrix(y_test, y_pred)
 
+    # Transpose so rows = Predicted, columns = Actual (matches reference image)
+    cm_t = cm.T
+
+    # Column-normalized percentages (each column, i.e. each Actual class, sums to 100%)
+    col_sums = cm_t.sum(axis=0, keepdims=True)
+    cm_percent = (cm_t / col_sums) * 100
+
+    # Build annotation text: "xx.x%\ncount" per cell
+    annot = np.empty_like(cm_t).astype(str)
+    for i in range(cm_t.shape[0]):
+        for j in range(cm_t.shape[1]):
+            annot[i, j] = f"{cm_percent[i, j]:.1f}%\n{cm_t[i, j]}"
+
     # ------------------------------------------------------------
-    # 4. Plot heatmap
+    # 4. Plot heatmap (green-yellow style, matching the reference)
     # ------------------------------------------------------------
-    plt.figure(figsize=(6, 5))
-    sns.heatmap(
-        cm, annot=True, fmt='d', cmap='Blues', cbar=False,
-        xticklabels=["No Diabetes", "Diabetes"],
-        yticklabels=["No Diabetes", "Diabetes"],
-        annot_kws={"size": 18}
+    plt.figure(figsize=(7, 6))
+    ax = sns.heatmap(
+        cm_t,
+        annot=annot,
+        fmt='',
+        cmap='YlGn_r',
+        cbar=True,
+        linewidths=1,
+        linecolor='black',
+        xticklabels=CLASS_LABELS,
+        yticklabels=CLASS_LABELS,
+        annot_kws={"size": 13}
     )
-    plt.title(f"KNN Confusion Matrix (Accuracy = {acc:.4f})", fontsize=14, fontweight='bold')
-    plt.xlabel("Predicted Label")
-    plt.ylabel("Actual Label")
+
+    plt.title(f"Accuracy: {acc * 100:.2f}%", fontsize=14, fontweight='bold')
+    plt.xlabel("Actual Labels")
+    plt.ylabel("Predicted Labels")
+    plt.xticks(rotation=30, ha='right')
+    plt.yticks(rotation=0)
     plt.tight_layout()
     plt.savefig(OUTPUT_FILE, dpi=200)
     plt.close()
 
     print(f"Saved: {OUTPUT_FILE}")
     print(f"Accuracy: {acc:.4f}")
-    print("\nConfusion Matrix:")
-    print(cm)
-    print("\nRead as:")
-    print(f"  True Negatives  (correctly predicted No Diabetes): {cm[0][0]}")
-    print(f"  False Positives (wrongly predicted Diabetes)      : {cm[0][1]}")
-    print(f"  False Negatives (wrongly predicted No Diabetes)   : {cm[1][0]}")
-    print(f"  True Positives  (correctly predicted Diabetes)    : {cm[1][1]}")
+    print("\nConfusion Matrix (rows=Predicted, columns=Actual):")
+    print(cm_t)
 
 
 if __name__ == "__main__":
