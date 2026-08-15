@@ -1,25 +1,20 @@
 """
-feature_graphs.py
-------------------
-Generates ONE graph per feature (8 total), each showing how that
-feature differs between diabetic and non-diabetic patients.
+feature_graphs_app.py
+----------------------
+Standalone Streamlit app that shows ONE graph per feature (8 total),
+each showing how that feature differs between diabetic and
+non-diabetic patients (boxplot split by Outcome).
 
-Each graph = a boxplot split by Outcome (No Diabetes vs Diabetes),
-which is meaningful because it visually shows whether that feature
-is actually useful for predicting diabetes -- not just a random
-distribution plot.
-
-Also prints an automatic interpretation for each feature (mean
-difference between groups) that you can paraphrase into your report.
+This is separate from your main app.py -- run it on its own.
 
 Requirements:
-  pip install pandas numpy matplotlib seaborn
+  pip install streamlit pandas numpy matplotlib seaborn
 
-Run:
-  python feature_graphs.py
+Run from terminal:
+  streamlit run feature_graphs_app.py
 
-Output:
-  Saves 8 PNG files into a folder called "feature_graphs/"
+Required file in the same folder:
+  diabetes.csv (or Data/diabetes.csv, see RAW_PATH below)
 """
 
 import os
@@ -27,9 +22,12 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import streamlit as st
 
+# ------------------------------------------------------------------
+# Config -- adjust this path if diabetes.csv sits in a different folder
+# ------------------------------------------------------------------
 RAW_PATH = "diabetes.csv"
-OUTPUT_DIR = "feature_graphs"
 TARGET_COL = "Outcome"
 
 FEATURES = [
@@ -54,52 +52,67 @@ FEATURE_MEANING = {
 }
 
 sns.set_style("whitegrid")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+st.set_page_config(page_title="Feature Graphs", page_icon="📊", layout="wide")
+st.title("📊 Feature Distributions by Diabetes Outcome")
+st.caption(
+    "Each graph shows whether a feature actually differs between diabetic "
+    "and non-diabetic patients -- a bigger visible gap between the two boxes "
+    "means that feature is likely a stronger predictor."
+)
+
+if not os.path.exists(RAW_PATH):
+    st.error(
+        f"Could not find `{RAW_PATH}`. Make sure this script sits in the same "
+        f"folder as your dataset, or edit RAW_PATH at the top of "
+        f"`feature_graphs_app.py`."
+    )
+    st.stop()
 
 
-def main():
+@st.cache_data
+def load_and_clean_data():
     df = pd.read_csv(RAW_PATH)
-
-    # Replace invalid zeros with NaN so they don't skew the boxplots,
-    # then drop those NaNs just for plotting (not modifying your CSV)
     clean = df.copy()
     for c in ZERO_AS_MISSING_COLS:
         clean[c] = clean[c].replace(0, np.nan)
-
-    print("Generating one graph per feature...\n")
-
-    for i, feature in enumerate(FEATURES, start=1):
-        plot_df = clean[[feature, TARGET_COL]].dropna()
-
-        mean_no = plot_df[plot_df[TARGET_COL] == 0][feature].mean()
-        mean_yes = plot_df[plot_df[TARGET_COL] == 1][feature].mean()
-        diff_pct = ((mean_yes - mean_no) / mean_no) * 100 if mean_no != 0 else float('nan')
-
-        plt.figure(figsize=(6, 5))
-        sns.boxplot(
-            data=plot_df, x=TARGET_COL, y=feature,
-            hue=TARGET_COL, palette=["#22B07D", "#E5484D"], legend=False
-        )
-        plt.xticks([0, 1], ["No Diabetes", "Diabetes"])
-        plt.title(f"{feature} by Diabetes Outcome\n({FEATURE_MEANING.get(feature, '')})",
-                   fontsize=12, fontweight='bold')
-        plt.xlabel("")
-        plt.ylabel(feature)
-        plt.tight_layout()
-
-        filename = f"{OUTPUT_DIR}/{i}_{feature}.png"
-        plt.savefig(filename, dpi=200)
-        plt.close()
-
-        direction = "higher" if mean_yes > mean_no else "lower"
-        print(f"[{i}/8] Saved -> {filename}")
-        print(f"       Mean (No Diabetes) = {mean_no:.2f} | Mean (Diabetes) = {mean_yes:.2f}")
-        print(f"       Interpretation: Diabetic patients tend to have {direction} {feature} "
-              f"({abs(diff_pct):.1f}% {direction}) than non-diabetic patients.\n")
-
-    print(f"All 8 graphs saved in the '{OUTPUT_DIR}/' folder.")
-    print("Use the printed interpretations above as a starting point for your report captions.")
+    return clean
 
 
-if __name__ == "__main__":
-    main()
+def plot_feature(clean_df, feature):
+    plot_df = clean_df[[feature, TARGET_COL]].dropna()
+
+    mean_no = plot_df[plot_df[TARGET_COL] == 0][feature].mean()
+    mean_yes = plot_df[plot_df[TARGET_COL] == 1][feature].mean()
+    diff_pct = ((mean_yes - mean_no) / mean_no) * 100 if mean_no != 0 else float('nan')
+    direction = "higher" if mean_yes > mean_no else "lower"
+
+    fig, ax = plt.subplots(figsize=(5, 4.5))
+    sns.boxplot(
+        data=plot_df, x=TARGET_COL, y=feature,
+        hue=TARGET_COL, palette=["#22B07D", "#E5484D"], legend=False, ax=ax
+    )
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels(["No Diabetes", "Diabetes"])
+    ax.set_title(f"{feature}\n({FEATURE_MEANING.get(feature, '')})", fontsize=11, fontweight='bold')
+    ax.set_xlabel("")
+    ax.set_ylabel(feature)
+    fig.tight_layout()
+
+    return fig, mean_no, mean_yes, diff_pct, direction
+
+
+clean_df = load_and_clean_data()
+
+# Display 2 graphs per row
+for row_start in range(0, len(FEATURES), 2):
+    cols = st.columns(2)
+    for col, feature in zip(cols, FEATURES[row_start:row_start + 2]):
+        with col:
+            fig, mean_no, mean_yes, diff_pct, direction = plot_feature(clean_df, feature)
+            st.pyplot(fig, use_container_width=True)
+            st.caption(
+                f"No Diabetes mean = {mean_no:.2f} | Diabetes mean = {mean_yes:.2f} "
+                f"-- Diabetic patients tend to have **{direction} {feature}** "
+                f"({abs(diff_pct):.1f}% {direction})."
+            )
