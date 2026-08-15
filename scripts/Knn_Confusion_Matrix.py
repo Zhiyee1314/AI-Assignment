@@ -147,22 +147,3 @@ st.pyplot(fig, use_container_width=False)
 # ------------------------------------------------------------------
 st.metric("Accuracy", f"{acc:.4f}")
 
-st.markdown("##### How to read this")
-st.write(
-    f"- **True Negatives** (correctly predicted No Diabetes): {cm[0][0]}\n"
-    f"- **False Positives** (wrongly predicted Diabetes): {cm[0][1]}\n"
-    f"- **False Negatives** (wrongly predicted No Diabetes): {cm[1][0]}\n"
-    f"- **True Positives** (correctly predicted Diabetes): {cm[1][1]}"
-)
-
-st.markdown(
-    """
-    ##### Notes
-    - Each cell shows the **column-normalized percentage** (i.e. out of all
-      actual cases of that class, what % were predicted as each label)
-      followed by the **raw count**.
-    - **False Negatives** are usually the most important number to highlight
-      in a medical context -- they represent diabetic patients the model
-      missed, which is riskier than a false alarm (False Positive).
-    """
-)
