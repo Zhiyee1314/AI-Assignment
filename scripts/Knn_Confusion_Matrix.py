@@ -1,40 +1,45 @@
 """
-knn_confusion_matrix.py
+confusion_matrix_knn.py
 ------------------------
-Generates the Confusion Matrix heatmap for your KNN model, styled to
-match a reference format:
+Standalone Streamlit app that shows the Confusion Matrix heatmap for
+your KNN model. This is separate from your main app.py -- run it on
+its own.
+
+Style:
   - Green-to-yellow color scale
   - Each cell shows percentage (column-normalized) + raw count
   - Y-axis = Predicted Labels, X-axis = Actual Labels
   - Accuracy shown in the title
 
-Loads your already-trained knn_model.pkl + the shared imputer.pkl
-and scaler.pkl, evaluates on the same test split, and saves the
-heatmap as a PNG for your report.
-
 Requirements:
-  pip install pandas numpy scikit-learn matplotlib seaborn joblib
+  pip install streamlit pandas numpy scikit-learn matplotlib seaborn joblib
 
-Run:
-  python knn_confusion_matrix.py
+Run from terminal:
+  streamlit run confusion_matrix_knn.py
 
 Required files in the same folder:
-  diabetes.csv, imputer.pkl, scaler.pkl, knn_model.pkl
+  diabetes.csv (or Data/diabetes.csv, see RAW_PATH below)
+  imputer.pkl, scaler.pkl, knn_model.pkl
+  (or models/imputer.pkl, models/scaler.pkl, models/knn_model.pkl)
 """
 
+import os
 import numpy as np
 import pandas as pd
 import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
+import streamlit as st
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, accuracy_score
 
+# ------------------------------------------------------------------
+# Config -- adjust these paths if your files sit in different folders
+# ------------------------------------------------------------------
 RAW_PATH = "diabetes.csv"
 IMPUTER_PATH = "imputer.pkl"
 SCALER_PATH = "scaler.pkl"
 KNN_MODEL_PATH = "knn_model.pkl"
-OUTPUT_FILE = "knn_confusion_matrix.png"
 
 FEATURE_ORDER = [
     "Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
@@ -46,10 +51,29 @@ RANDOM_STATE = 42
 CLASS_LABELS = ["No Diabetes", "Diabetes"]
 
 
-def main():
-    # ------------------------------------------------------------
-    # 1. Load data + apply the SAME shared preprocessing
-    # ------------------------------------------------------------
+st.set_page_config(page_title="KNN Confusion Matrix", page_icon="🟩", layout="centered")
+st.title("🟩 KNN — Confusion Matrix")
+st.caption("Evaluated on the same 80/20 test split used to train the KNN model.")
+
+
+def check_files_exist():
+    missing = [p for p in [RAW_PATH, IMPUTER_PATH, SCALER_PATH, KNN_MODEL_PATH] if not os.path.exists(p)]
+    return missing
+
+
+missing_files = check_files_exist()
+if missing_files:
+    st.error(
+        "The following required file(s) were not found in this folder:\n\n"
+        + "\n".join(f"- `{f}`" for f in missing_files)
+        + "\n\nMake sure this script sits in the same folder as your dataset and .pkl files, "
+          "or edit the path variables at the top of `confusion_matrix_knn.py`."
+    )
+    st.stop()
+
+
+@st.cache_data
+def compute_confusion_matrix():
     raw = pd.read_csv(RAW_PATH)
     imputer = joblib.load(IMPUTER_PATH)
     scaler = joblib.load(SCALER_PATH)
@@ -64,68 +88,81 @@ def main():
     X_imputed = pd.DataFrame(imputer.transform(X), columns=FEATURE_ORDER)
     X_scaled = pd.DataFrame(scaler.transform(X_imputed), columns=FEATURE_ORDER)
 
-    # ------------------------------------------------------------
-    # 2. SAME train/test split as your training script
-    # ------------------------------------------------------------
     _, X_test, _, y_test = train_test_split(
         X_scaled, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y
     )
 
-    # ------------------------------------------------------------
-    # 3. Load model and predict
-    # ------------------------------------------------------------
     model = joblib.load(KNN_MODEL_PATH)
     y_pred = model.predict(X_test)
 
     acc = accuracy_score(y_test, y_pred)
+    cm = confusion_matrix(y_test, y_pred)  # cm[i][j] = actual class i, predicted class j
 
-    # cm[i][j] = actual class i, predicted class j
-    cm = confusion_matrix(y_test, y_pred)
-
-    # Transpose so rows = Predicted, columns = Actual (matches reference image)
-    cm_t = cm.T
-
-    # Column-normalized percentages (each column, i.e. each Actual class, sums to 100%)
-    col_sums = cm_t.sum(axis=0, keepdims=True)
-    cm_percent = (cm_t / col_sums) * 100
-
-    # Build annotation text: "xx.x%\ncount" per cell
-    annot = np.empty_like(cm_t).astype(str)
-    for i in range(cm_t.shape[0]):
-        for j in range(cm_t.shape[1]):
-            annot[i, j] = f"{cm_percent[i, j]:.1f}%\n{cm_t[i, j]}"
-
-    # ------------------------------------------------------------
-    # 4. Plot heatmap (green-yellow style, matching the reference)
-    # ------------------------------------------------------------
-    plt.figure(figsize=(7, 6))
-    ax = sns.heatmap(
-        cm_t,
-        annot=annot,
-        fmt='',
-        cmap='YlGn_r',
-        cbar=True,
-        linewidths=1,
-        linecolor='black',
-        xticklabels=CLASS_LABELS,
-        yticklabels=CLASS_LABELS,
-        annot_kws={"size": 13}
-    )
-
-    plt.title(f"Accuracy: {acc * 100:.2f}%", fontsize=14, fontweight='bold')
-    plt.xlabel("Actual Labels")
-    plt.ylabel("Predicted Labels")
-    plt.xticks(rotation=30, ha='right')
-    plt.yticks(rotation=0)
-    plt.tight_layout()
-    plt.savefig(OUTPUT_FILE, dpi=200)
-    plt.close()
-
-    print(f"Saved: {OUTPUT_FILE}")
-    print(f"Accuracy: {acc:.4f}")
-    print("\nConfusion Matrix (rows=Predicted, columns=Actual):")
-    print(cm_t)
+    return cm, acc
 
 
-if __name__ == "__main__":
-    main()
+with st.spinner("Evaluating KNN model..."):
+    cm, acc = compute_confusion_matrix()
+
+# ------------------------------------------------------------------
+# Build the annotated, transposed matrix (rows=Predicted, cols=Actual)
+# ------------------------------------------------------------------
+cm_t = cm.T
+col_sums = cm_t.sum(axis=0, keepdims=True)
+cm_percent = (cm_t / col_sums) * 100
+
+annot = np.empty_like(cm_t).astype(str)
+for i in range(cm_t.shape[0]):
+    for j in range(cm_t.shape[1]):
+        annot[i, j] = f"{cm_percent[i, j]:.1f}%\n{cm_t[i, j]}"
+
+# ------------------------------------------------------------------
+# Plot (green-yellow style, matching the reference)
+# ------------------------------------------------------------------
+fig, ax = plt.subplots(figsize=(7, 6))
+sns.heatmap(
+    cm_t,
+    annot=annot,
+    fmt='',
+    cmap='YlGn_r',
+    cbar=True,
+    linewidths=1,
+    linecolor='black',
+    xticklabels=CLASS_LABELS,
+    yticklabels=CLASS_LABELS,
+    annot_kws={"size": 13},
+    ax=ax
+)
+ax.set_title(f"Accuracy: {acc * 100:.2f}%", fontsize=14, fontweight='bold')
+ax.set_xlabel("Actual Labels")
+ax.set_ylabel("Predicted Labels")
+plt.setp(ax.get_xticklabels(), rotation=0)
+plt.setp(ax.get_yticklabels(), rotation=0)
+fig.tight_layout()
+
+st.pyplot(fig, use_container_width=False)
+
+# ------------------------------------------------------------------
+# Summary metrics + interpretation
+# ------------------------------------------------------------------
+st.metric("Accuracy", f"{acc:.4f}")
+
+st.markdown("##### How to read this")
+st.write(
+    f"- **True Negatives** (correctly predicted No Diabetes): {cm[0][0]}\n"
+    f"- **False Positives** (wrongly predicted Diabetes): {cm[0][1]}\n"
+    f"- **False Negatives** (wrongly predicted No Diabetes): {cm[1][0]}\n"
+    f"- **True Positives** (correctly predicted Diabetes): {cm[1][1]}"
+)
+
+st.markdown(
+    """
+    ##### Notes
+    - Each cell shows the **column-normalized percentage** (i.e. out of all
+      actual cases of that class, what % were predicted as each label)
+      followed by the **raw count**.
+    - **False Negatives** are usually the most important number to highlight
+      in a medical context -- they represent diabetic patients the model
+      missed, which is riskier than a false alarm (False Positive).
+    """
+)
