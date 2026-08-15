@@ -102,6 +102,31 @@ def plot_feature(clean_df, feature):
     return fig, mean_no, mean_yes, diff_pct, direction
 
 
+def plot_mean_comparison_bar(feature, mean_no, mean_yes):
+    """Small bar chart comparing the two group means, with value labels,
+    replacing the plain text caption with a visual."""
+    fig, ax = plt.subplots(figsize=(5, 2.6))
+    labels = ["No Diabetes", "Diabetes"]
+    values = [mean_no, mean_yes]
+    colors = ["#22B07D", "#E5484D"]
+
+    bars = ax.bar(labels, values, color=colors, width=0.5)
+    for bar, val in zip(bars, values):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2, bar.get_height(),
+            f"{val:.2f}", ha='center', va='bottom', fontsize=10, fontweight='bold'
+        )
+
+    ax.set_title(f"Mean {feature} Comparison", fontsize=10, fontweight='bold')
+    ax.set_ylabel("Mean Value")
+    ax.set_ylim(0, max(values) * 1.25)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    fig.tight_layout()
+
+    return fig
+
+
 clean_df = load_and_clean_data()
 
 # Display 2 graphs per row
@@ -111,8 +136,12 @@ for row_start in range(0, len(FEATURES), 2):
         with col:
             fig, mean_no, mean_yes, diff_pct, direction = plot_feature(clean_df, feature)
             st.pyplot(fig, use_container_width=True)
+
+            bar_fig = plot_mean_comparison_bar(feature, mean_no, mean_yes)
+            st.pyplot(bar_fig, use_container_width=True)
+
             st.caption(
-                f"No Diabetes mean = {mean_no:.2f} | Diabetes mean = {mean_yes:.2f} "
-                f"-- Diabetic patients tend to have **{direction} {feature}** "
+                f"Diabetic patients tend to have **{direction} {feature}** "
                 f"({abs(diff_pct):.1f}% {direction})."
             )
+            st.divider()
