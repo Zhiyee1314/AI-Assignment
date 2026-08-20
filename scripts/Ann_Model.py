@@ -13,7 +13,12 @@ trained on identical preprocessing.
 import pandas as pd
 import numpy as np
 import joblib
-from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
+from sklearn.model_selection import (
+    train_test_split,
+    GridSearchCV,
+    StratifiedKFold,
+    cross_val_predict
+)
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 from sklearn.neural_network import MLPClassifier
@@ -87,13 +92,13 @@ ann = MLPClassifier(
 )
 
 param_grid = {
+
     "hidden_layer_sizes": [
-        (8,),
-        (16,),
-        (32,),
+        (12, 6),
         (16, 8),
-        (32, 16),
-        (64, 32)
+        (20, 10),
+        (24, 12),
+        (32, 16)
     ],
 
     "activation": [
@@ -102,11 +107,13 @@ param_grid = {
     ],
 
     "alpha": [
-        0.00001,
-        0.0001,
-        0.001,
-        0.01,
-        0.1
+        0.03,
+        0.05,
+        0.08,
+        0.10,
+        0.15,
+        0.20,
+        0.30
     ]
 }
 
@@ -126,11 +133,53 @@ print("\nBest ANN parameters:", grid.best_params_)
 print(f"Best CV accuracy: {grid.best_score_:.4f}")
 
 # ------------------------------------------------------------------
+# Find the best classification threshold using TRAINING data only
+# ------------------------------------------------------------------
+
+cv_prob = cross_val_predict(
+    model,
+    X_train_scaled,
+    y_train,
+    cv=cv,
+    method="predict_proba",
+    n_jobs=-1
+)[:, 1]
+
+best_threshold = 0.50
+best_threshold_accuracy = 0
+
+for threshold in np.arange(0.30, 0.71, 0.01):
+
+    cv_pred = (cv_prob >= threshold).astype(int)
+
+    threshold_accuracy = accuracy_score(
+        y_train,
+        cv_pred
+    )
+
+    if threshold_accuracy > best_threshold_accuracy:
+        best_threshold_accuracy = threshold_accuracy
+        best_threshold = threshold
+
+print(
+    f"Best probability threshold: "
+    f"{best_threshold:.2f}"
+)
+
+print(
+    f"Threshold CV accuracy: "
+    f"{best_threshold_accuracy:.4f}"
+)
+
+# ------------------------------------------------------------------
 # 6. Evaluate ANN
 # ------------------------------------------------------------------
 
-y_pred = model.predict(X_test_scaled)
 y_prob = model.predict_proba(X_test_scaled)[:, 1]
+
+y_pred = (
+    y_prob >= best_threshold
+).astype(int)
 
 print("\n===== ANN (Tuned MLP) — Final Results =====")
 
