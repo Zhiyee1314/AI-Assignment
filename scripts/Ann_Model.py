@@ -13,10 +13,20 @@ trained on identical preprocessing.
 import pandas as pd
 import numpy as np
 import joblib
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 from sklearn.neural_network import MLPClassifier
+
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix,
+    classification_report,
+    roc_auc_score
+)
 
 # ------------------------------------------------------------------
 # 1. Load your dataset
@@ -60,21 +70,82 @@ X_train_scaled = scaler.fit_transform(X_train_imputed)
 X_test_scaled = scaler.transform(X_test_imputed)
 
 # ------------------------------------------------------------------
-# 5. Train the model
+# 5. Tune and train ANN model
 # ------------------------------------------------------------------
-model = MLPClassifier(
-    hidden_layer_sizes=(32, 16),
-    activation="relu",
-    max_iter=1000,
-    random_state=42,
+
+cv = StratifiedKFold(
+    n_splits=5,
+    shuffle=True,
+    random_state=42
 )
-model.fit(X_train_scaled, y_train)
 
-acc = model.score(X_test_scaled, y_test)
-print(f"Test accuracy: {acc:.3f}")
+ann = MLPClassifier(
+    solver="lbfgs",
+    max_iter=5000,
+    max_fun=50000,
+    random_state=42
+)
+
+param_grid = {
+    "hidden_layer_sizes": [
+        (8,),
+        (16,),
+        (32,),
+        (16, 8),
+        (32, 16),
+        (64, 32)
+    ],
+
+    "activation": [
+        "relu",
+        "tanh"
+    ],
+
+    "alpha": [
+        0.00001,
+        0.0001,
+        0.001,
+        0.01,
+        0.1
+    ]
+}
+
+grid = GridSearchCV(
+    ann,
+    param_grid,
+    cv=cv,
+    scoring="accuracy",
+    n_jobs=-1
+)
+
+grid.fit(X_train_scaled, y_train)
+
+model = grid.best_estimator_
+
+print("\nBest ANN parameters:", grid.best_params_)
+print(f"Best CV accuracy: {grid.best_score_:.4f}")
 
 # ------------------------------------------------------------------
-# 6. Save all 3 files with joblib (NOT plain pickle — joblib handles
+# 6. Evaluate ANN
+# ------------------------------------------------------------------
+
+y_pred = model.predict(X_test_scaled)
+y_prob = model.predict_proba(X_test_scaled)[:, 1]
+
+print("\n===== ANN (Tuned MLP) — Final Results =====")
+
+print(f"Accuracy : {accuracy_score(y_test, y_pred):.4f}")
+print(f"Precision: {precision_score(y_test, y_pred):.4f}")
+print(f"Recall   : {recall_score(y_test, y_pred):.4f}")
+print(f"F1-score : {f1_score(y_test, y_pred):.4f}")
+print(f"AUC      : {roc_auc_score(y_test, y_prob):.4f}")
+
+print("\nConfusion Matrix:\n", confusion_matrix(y_test, y_pred))
+
+print("\n", classification_report(y_test, y_pred))
+
+# ------------------------------------------------------------------
+# 7. Save all 3 files with joblib (NOT plain pickle — joblib handles
 #    numpy arrays inside sklearn objects more efficiently, and it's
 #    what your app.py already expects via joblib.load(...))
 # ------------------------------------------------------------------
