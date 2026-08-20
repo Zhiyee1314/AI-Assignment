@@ -43,8 +43,8 @@ for c in cols_with_invalid_zero:
 X = clean[FEATURE_ORDER]
 y = clean[TARGET_COL]
 
-X_imputed = pd.DataFrame(imputer.transform(X), columns=FEATURE_ORDER)
-X_scaled = pd.DataFrame(scaler.transform(X_imputed), columns=FEATURE_ORDER)
+X_imputed = imputer.transform(X)
+X_scaled = scaler.transform(X_imputed)
 
 # ---------------------------------------------------------------
 # 2. Train/test split -- SAME settings as ann_model.py
@@ -55,24 +55,88 @@ X_train, X_test, y_train, y_test = train_test_split(
 
 # ---------------------------------------------------------------
 # 3. Hyperparameter tuning
-#    kernel: 'rbf' usually works best for this kind of tabular,
-#    non-linearly-separable medical data. C controls how strict the
-#    margin is; gamma controls how far the influence of a single
-#    training point reaches.
 # ---------------------------------------------------------------
-param_grid = {
-    "C": [0.1, 1, 10, 100],
-    "gamma": ["scale", 0.01, 0.1, 1],
-    "kernel": ["rbf", "linear"],
-}
-grid = GridSearchCV(
-    SVC(probability=True, random_state=RANDOM_STATE),
-    param_grid, cv=5, scoring="f1", n_jobs=-1
-)
-grid.fit(X_train, y_train)
-svm = grid.best_estimator_
-print("Best hyperparameters:", grid.best_params_)
 
+from sklearn.model_selection import StratifiedKFold
+
+cv = StratifiedKFold(
+    n_splits=5,
+    shuffle=True,
+    random_state=RANDOM_STATE
+)
+
+param_grid = [
+    {
+        "kernel": ["rbf"],
+
+        "C": [
+            0.1,
+            0.3,
+            1,
+            3,
+            10,
+            30,
+            100
+        ],
+
+        "gamma": [
+            "scale",
+            "auto",
+            0.001,
+            0.003,
+            0.01,
+            0.03,
+            0.1,
+            0.3
+        ],
+
+        "class_weight": [
+            None,
+            "balanced"
+        ]
+    },
+
+    {
+        "kernel": ["linear"],
+
+        "C": [
+            0.01,
+            0.03,
+            0.1,
+            0.3,
+            1,
+            3,
+            10
+        ],
+
+        "class_weight": [
+            None,
+            "balanced"
+        ]
+    }
+]
+
+grid = GridSearchCV(
+    SVC(
+        probability=True,
+        random_state=RANDOM_STATE
+    ),
+
+    param_grid,
+
+    cv=cv,
+
+    scoring="accuracy",
+
+    n_jobs=-1
+)
+
+grid.fit(X_train, y_train)
+
+svm = grid.best_estimator_
+
+print("\nBest SVM hyperparameters:", grid.best_params_)
+print(f"Best CV accuracy: {grid.best_score_:.4f}")
 # ---------------------------------------------------------------
 # 4. Evaluate on test set
 # ---------------------------------------------------------------
