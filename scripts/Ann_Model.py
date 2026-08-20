@@ -6,14 +6,21 @@ Run this once locally after you finish training — it saves 3 files into
 the same folder: imputer.pkl, scaler.pkl, ann_model.pkl
 
 Your teammates copy THIS SAME imputer.pkl + scaler.pkl into their own
-training script (see the note near the bottom) so all 3 models are
-trained on identical preprocessing.
+training script so all 3 models are trained on identical preprocessing.
+
+CHANGES from your original version:
+  1. RepeatedStratifiedKFold (5 splits x 3 repeats) instead of plain
+     5-fold -> steadier CV estimate for grid search.
+  2. Wider hidden_layer_sizes grid + alpha range.
+  3. Added "adam" as a second solver option alongside "lbfgs" (adam
+     often generalizes slightly better on small tabular data), with
+     early_stopping so it doesn't overfit while searching.
 """
 
 import pandas as pd
 import numpy as np
 import joblib
-from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
+from sklearn.model_selection import train_test_split, GridSearchCV, RepeatedStratifiedKFold
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 from sklearn.neural_network import MLPClassifier
@@ -73,16 +80,17 @@ X_test_scaled = scaler.transform(X_test_imputed)
 # 5. Tune and train ANN model
 # ------------------------------------------------------------------
 
-cv = StratifiedKFold(
+cv = RepeatedStratifiedKFold(
     n_splits=5,
-    shuffle=True,
+    n_repeats=3,
     random_state=42
 )
 
 ann = MLPClassifier(
-    solver="lbfgs",
     max_iter=5000,
     max_fun=50000,
+    early_stopping=True,     # only kicks in for solver="adam"; ignored by lbfgs
+    n_iter_no_change=20,
     random_state=42
 )
 
@@ -93,7 +101,9 @@ param_grid = {
         (32,),
         (16, 8),
         (32, 16),
-        (64, 32)
+        (64, 32),
+        (32, 16, 8),
+        (64, 32, 16),
     ],
 
     "activation": [
@@ -102,12 +112,14 @@ param_grid = {
     ],
 
     "alpha": [
-        0.00001,
         0.0001,
         0.001,
         0.01,
-        0.1
-    ]
+        0.1,
+        1.0,
+    ],
+
+    "solver": ["lbfgs", "adam"],
 }
 
 grid = GridSearchCV(
@@ -164,10 +176,6 @@ print("Saved: imputer.pkl, scaler.pkl, ann_model.pkl")
 #
 #   X_train_imputed = imputer.transform(X_train)   # transform, NOT fit_transform
 #   X_train_scaled  = scaler.transform(X_train_imputed)
-#
-#   svm_model = SVC(probability=True, random_state=42)
-#   svm_model.fit(X_train_scaled, y_train)
-#   joblib.dump(svm_model, "svm_model.pkl")
 #
 # This guarantees all 3 models see numbers on the same scale, trained
 # on the same missing-value treatment, so accuracy/probability
