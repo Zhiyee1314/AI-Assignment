@@ -12,6 +12,21 @@ CHANGES from your original version:
   3. RepeatedStratifiedKFold (5 splits x 3 repeats) instead of plain
      5-fold -> a steadier CV estimate, so grid search is less likely
      to pick a combo that just got lucky on one fold split.
+
+IMPORTANT: run the updated ann_model.py FIRST to regenerate imputer.pkl
+and scaler.pkl. The old ones were fit on plain numpy arrays (no column
+names), which is exactly why you got:
+  "UserWarning: X has feature names, but StandardScaler was fitted
+   without feature names"
+The updated ann_model.py keeps everything as a DataFrame end-to-end, so
+the regenerated scaler.pkl will have feature names and this script's
+scaler.transform(X_imputed) call below will match cleanly -- no warning.
+
+The other warning you saw --
+  "FutureWarning: The `probability` parameter was deprecated in 1.9..."
+-- is harmless on your current sklearn version; `probability=True` still
+works exactly as before, it's just flagging that a future sklearn
+release will require CalibratedClassifierCV instead. Nothing to fix now.
 """
 import pandas as pd
 import numpy as np
