@@ -13,9 +13,26 @@ trained on identical preprocessing.
 import pandas as pd
 import numpy as np
 import joblib
-from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler
+import sys
+from pathlib import Path
+
+from sklearn.model_selection import GridSearchCV, StratifiedKFold
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.model_pipeline import (
+    MODELS_DIR,
+    RANDOM_STATE,
+    create_model_ablation_report,
+    evaluate_model,
+    fit_preprocessors,
+    load_clean_dataset,
+    split_raw_dataset,
+    transform_features,
+    update_ablation_report,
+    update_model_metrics,
+)
 from sklearn.neural_network import MLPClassifier
 
 from sklearn.metrics import (
@@ -29,45 +46,27 @@ from sklearn.metrics import (
 )
 
 # ------------------------------------------------------------------
-# 1. Load your dataset
+# 1. Load data and use the shared split
 # ------------------------------------------------------------------
-df = pd.read_csv("diabetes.csv")  # <-- change to your actual CSV path
+data = load_clean_dataset()
 
-FEATURE_ORDER = [
-    "Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
-    "Insulin", "BMI", "DiabetesPedigreeFunction", "Age"
-]
-TARGET = "Outcome"  # <-- change if your label column has a different name
-
-X = df[FEATURE_ORDER].copy()
-y = df[TARGET].copy()
-
-# ------------------------------------------------------------------
-# 2. Treat 0 as missing for these columns (0 is not physiologically
-#    possible for these, so it really means "not recorded")
-# ------------------------------------------------------------------
-ZERO_AS_MISSING_COLS = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
-for c in ZERO_AS_MISSING_COLS:
-    X[c] = X[c].replace(0, np.nan)
-
-# ------------------------------------------------------------------
-# 3. Train/test split BEFORE fitting imputer/scaler (avoid leakage)
-# ------------------------------------------------------------------
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
+X_train_raw, X_test_raw, y_train, y_test = split_raw_dataset(
+    data=data
 )
 
-# ------------------------------------------------------------------
-# 4. Fit imputer + scaler on the TRAIN split only, then transform both
-#    -> These two objects are what gets shared with teammates
-# ------------------------------------------------------------------
-imputer = SimpleImputer(strategy="median")
-X_train_imputed = imputer.fit_transform(X_train)
-X_test_imputed = imputer.transform(X_test)
+# ANN creates the shared imputer and 0–1 scaler.
+imputer, scaler = fit_preprocessors(X_train_raw)
 
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train_imputed)
-X_test_scaled = scaler.transform(X_test_imputed)
+X_train_scaled = transform_features(
+    X_train_raw, imputer, scaler
+)
+
+X_test_scaled = transform_features(
+    X_test_raw, imputer, scaler
+)
+
+print("Minimum normalized value:", X_train_scaled.min())
+print("Maximum normalized value:", X_train_scaled.max())
 
 # ------------------------------------------------------------------
 # 5. Tune and train ANN model
@@ -145,15 +144,37 @@ print("\nConfusion Matrix:\n", confusion_matrix(y_test, y_pred))
 print("\n", classification_report(y_test, y_pred))
 
 # ------------------------------------------------------------------
+# Save ANN metrics without deleting KNN/SVM results
+# ------------------------------------------------------------------
+metrics = evaluate_model(
+    "ANN", model, X_test_scaled, y_test
+)
+
+update_model_metrics("ANN", metrics)
+
+# ------------------------------------------------------------------
+# ANN leave-one-feature-out test
+# ------------------------------------------------------------------
+ablation = create_model_ablation_report(
+    "ANN", data, model
+)
+
+update_ablation_report("ANN", ablation)
+
+# ------------------------------------------------------------------
 # 7. Save all 3 files with joblib (NOT plain pickle — joblib handles
 #    numpy arrays inside sklearn objects more efficiently, and it's
 #    what your app.py already expects via joblib.load(...))
 # ------------------------------------------------------------------
-joblib.dump(imputer, "imputer.pkl")
-joblib.dump(scaler, "scaler.pkl")
-joblib.dump(model, "ann_model.pkl")
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+joblib.dump(imputer, MODELS_DIR / "imputer.pkl")
+joblib.dump(scaler, MODELS_DIR / "scaler.pkl")
+joblib.dump(model, MODELS_DIR / "ann_model.pkl")
+
 
 print("Saved: imputer.pkl, scaler.pkl, ann_model.pkl")
+print("\n", classification_report(y_test, y_pred))
 
 # ------------------------------------------------------------------
 # NOTE FOR TEAMMATES (SVM / KNN):
