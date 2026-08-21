@@ -1,8 +1,7 @@
-nltk
-joblib
-streamlit
-scikit-learn
-pandas
-numpy
-tabulate
+joblib==1.5.3
+streamlit==1.62.0
+scikit-learn==1.8.0
+pandas==2.2.3
+numpy==2.3.5
+matplotlib
 seaborn

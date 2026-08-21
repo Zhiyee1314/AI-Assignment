@@ -15,15 +15,15 @@ Requirements:
   pip install streamlit pandas numpy scikit-learn matplotlib seaborn joblib
 
 Run from terminal:
-  streamlit run confusion_matrix_knn.py
+  streamlit run scripts/Knn_Confusion_Matrix.py
 
-Required files in the same folder:
-  diabetes.csv (or Data/diabetes.csv, see RAW_PATH below)
-  imputer.pkl, scaler.pkl, knn_model.pkl
-  (or models/imputer.pkl, models/scaler.pkl, models/knn_model.pkl)
+Required repository files:
+  Data/diabetes.csv
+  models/imputer.pkl, models/scaler.pkl, models/knn_model.pkl
 """
 
 import os
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import joblib
@@ -34,12 +34,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, accuracy_score
 
 # ------------------------------------------------------------------
-# Config -- adjust these paths if your files sit in different folders
+# Repository paths
 # ------------------------------------------------------------------
-RAW_PATH = "diabetes.csv"
-IMPUTER_PATH = "imputer.pkl"
-SCALER_PATH = "scaler.pkl"
-KNN_MODEL_PATH = "knn_model.pkl"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+RAW_PATH = REPO_ROOT / "Data" / "diabetes.csv"
+IMPUTER_PATH = REPO_ROOT / "models" / "imputer.pkl"
+SCALER_PATH = REPO_ROOT / "models" / "scaler.pkl"
+KNN_MODEL_PATH = REPO_ROOT / "models" / "knn_model.pkl"
 
 FEATURE_ORDER = [
     "Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
@@ -66,15 +67,14 @@ if missing_files:
     st.error(
         "The following required file(s) were not found in this folder:\n\n"
         + "\n".join(f"- `{f}`" for f in missing_files)
-        + "\n\nMake sure this script sits in the same folder as your dataset and .pkl files, "
-          "or edit the path variables at the top of `confusion_matrix_knn.py`."
+        + "\n\nRun the script from a checkout that contains the Data/ and models/ folders."
     )
     st.stop()
 
 
 @st.cache_data
 def compute_confusion_matrix():
-    raw = pd.read_csv(RAW_PATH)
+    raw = pd.read_csv(RAW_PATH).drop_duplicates().reset_index(drop=True)
     imputer = joblib.load(IMPUTER_PATH)
     scaler = joblib.load(SCALER_PATH)
 
@@ -85,8 +85,8 @@ def compute_confusion_matrix():
     X = clean[FEATURE_ORDER]
     y = clean[TARGET_COL]
 
-    X_imputed = pd.DataFrame(imputer.transform(X), columns=FEATURE_ORDER)
-    X_scaled = pd.DataFrame(scaler.transform(X_imputed), columns=FEATURE_ORDER)
+    X_imputed = imputer.transform(X)
+    X_scaled = scaler.transform(X_imputed)
 
     _, X_test, _, y_test = train_test_split(
         X_scaled, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y
@@ -140,10 +140,9 @@ plt.setp(ax.get_xticklabels(), rotation=0)
 plt.setp(ax.get_yticklabels(), rotation=0)
 fig.tight_layout()
 
-st.pyplot(fig, use_container_width=False)
+st.pyplot(fig, width="content")
 
 # ------------------------------------------------------------------
 # Summary metrics + interpretation
 # ------------------------------------------------------------------
 st.metric("Accuracy", f"{acc:.4f}")
-
