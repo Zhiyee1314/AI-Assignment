@@ -174,7 +174,7 @@ joblib.dump(model, MODELS_DIR / "ann_model.pkl")
 
 
 print("Saved: imputer.pkl, scaler.pkl, ann_model.pkl")
-print("\n", classification_report(y_test, y_pred))
+
 
 # ------------------------------------------------------------------
 # NOTE FOR TEAMMATES (SVM / KNN):
