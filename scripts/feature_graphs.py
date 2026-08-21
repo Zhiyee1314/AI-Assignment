@@ -11,13 +11,14 @@ Requirements:
   pip install streamlit pandas numpy matplotlib seaborn
 
 Run from terminal:
-  streamlit run feature_graphs_app.py
+  streamlit run scripts/feature_graphs.py
 
-Required file in the same folder:
-  diabetes.csv (or Data/diabetes.csv, see RAW_PATH below)
+Required repository file:
+  Data/diabetes.csv
 """
 
 import os
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -25,9 +26,10 @@ import seaborn as sns
 import streamlit as st
 
 # ------------------------------------------------------------------
-# Config -- adjust this path if diabetes.csv sits in a different folder
+# Repository path
 # ------------------------------------------------------------------
-RAW_PATH = "diabetes.csv"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+RAW_PATH = REPO_ROOT / "Data" / "diabetes.csv"
 TARGET_COL = "Outcome"
 
 FEATURES = [
@@ -63,16 +65,15 @@ st.caption(
 
 if not os.path.exists(RAW_PATH):
     st.error(
-        f"Could not find `{RAW_PATH}`. Make sure this script sits in the same "
-        f"folder as your dataset, or edit RAW_PATH at the top of "
-        f"`feature_graphs_app.py`."
+        f"Could not find `{RAW_PATH}`. Run this script from a checkout that "
+        f"contains the Data/ folder."
     )
     st.stop()
 
 
 @st.cache_data
 def load_and_clean_data():
-    df = pd.read_csv(RAW_PATH)
+    df = pd.read_csv(RAW_PATH).drop_duplicates().reset_index(drop=True)
     clean = df.copy()
     for c in ZERO_AS_MISSING_COLS:
         clean[c] = clean[c].replace(0, np.nan)
@@ -135,10 +136,10 @@ for row_start in range(0, len(FEATURES), 2):
     for col, feature in zip(cols, FEATURES[row_start:row_start + 2]):
         with col:
             fig, mean_no, mean_yes, diff_pct, direction = plot_feature(clean_df, feature)
-            st.pyplot(fig, use_container_width=True)
+            st.pyplot(fig, width="stretch")
 
             bar_fig = plot_mean_comparison_bar(feature, mean_no, mean_yes)
-            st.pyplot(bar_fig, use_container_width=True)
+            st.pyplot(bar_fig, width="stretch")
 
             st.caption(
                 f"Diabetic patients tend to have **{direction} {feature}** "

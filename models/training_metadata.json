@@ -1,0 +1,43 @@
+{
+  "raw_rows": 1000,
+  "unique_rows_used": 768,
+  "duplicate_rows_removed": 232,
+  "features": [
+    "Pregnancies",
+    "Glucose",
+    "BloodPressure",
+    "SkinThickness",
+    "Insulin",
+    "BMI",
+    "DiabetesPedigreeFunction",
+    "Age"
+  ],
+  "scaler": "MinMaxScaler(feature_range=(0, 1), clip=True)",
+  "random_state": 42,
+  "test_size": 0.2,
+  "best_parameters": {
+    "ANN": {
+      "activation": "relu",
+      "alpha": 0.1,
+      "hidden_layer_sizes": [
+        8
+      ]
+    },
+    "SVM": {
+      "C": 10,
+      "class_weight": null,
+      "gamma": 0.3,
+      "kernel": "rbf"
+    },
+    "KNN": {
+      "metric": "manhattan",
+      "n_neighbors": 29,
+      "weights": "distance"
+    }
+  },
+  "best_cv_accuracy": {
+    "ANN": 0.7817406370785018,
+    "SVM": 0.7931360789017726,
+    "KNN": 0.783406637345062
+  }
+}
