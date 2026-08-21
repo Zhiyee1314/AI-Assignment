@@ -16,7 +16,12 @@ import joblib
 import sys
 from pathlib import Path
 
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
+from sklearn.base import clone
+from sklearn.model_selection import (
+    GridSearchCV,
+    StratifiedKFold,
+    TunedThresholdClassifierCV
+)
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -75,24 +80,31 @@ print("Maximum normalized value:", X_train_scaled.max())
 cv = StratifiedKFold(
     n_splits=5,
     shuffle=True,
-    random_state=42
+    random_state=RANDOM_STATE
 )
 
 ann = MLPClassifier(
     solver="lbfgs",
-    max_iter=5000,
-    max_fun=50000,
-    random_state=42
+
+    # Give ANN more opportunity to converge
+    max_iter=15000,
+    max_fun=150000,
+
+    # Slightly easier convergence requirement
+    tol=0.001,
+
+    random_state=RANDOM_STATE
 )
 
 param_grid = {
     "hidden_layer_sizes": [
+        (4,),
         (8,),
         (16,),
         (32,),
+        (8, 4),
         (16, 8),
-        (32, 16),
-        (64, 32)
+        (32, 16)
     ],
 
     "activation": [
@@ -101,28 +113,53 @@ param_grid = {
     ],
 
     "alpha": [
-        0.00001,
         0.0001,
         0.001,
         0.01,
-        0.1
+        0.1,
+        1.0
     ]
 }
 
 grid = GridSearchCV(
-    ann,
-    param_grid,
+    estimator=ann,
+    param_grid=param_grid,
     cv=cv,
     scoring="accuracy",
-    n_jobs=-1
+
+    # More stable on Windows
+    n_jobs=1,
+
+    return_train_score=True
 )
 
 grid.fit(X_train_scaled, y_train)
 
-model = grid.best_estimator_
-
 print("\nBest ANN parameters:", grid.best_params_)
 print(f"Best CV accuracy: {grid.best_score_:.4f}")
+
+# Tune the prediction threshold using training data only.
+# This is fair because the test data is not used here.
+threshold_cv = StratifiedKFold(
+    n_splits=5,
+    shuffle=True,
+    random_state=RANDOM_STATE
+)
+
+model = TunedThresholdClassifierCV(
+    estimator=clone(grid.best_estimator_),
+    scoring="accuracy",
+    response_method="predict_proba",
+    thresholds=100,
+    cv=threshold_cv,
+    refit=True,
+    n_jobs=1,
+    random_state=RANDOM_STATE
+)
+
+model.fit(X_train_scaled, y_train)
+
+print(f"Best probability threshold: {model.best_threshold_:.4f}")
 
 # ------------------------------------------------------------------
 # 6. Evaluate ANN
