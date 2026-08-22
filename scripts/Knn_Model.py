@@ -1,15 +1,4 @@
-"""Train, evaluate, ablate, and save the KNN model only.
-
-MODIFIED: uses only 4 features for prediction instead of all 8:
-  Glucose, BMI, Age, Pregnancies
-
-IMPORTANT: because the feature count changed (8 -> 4), this script now
-fits its OWN imputer/scaler (saved as knn_imputer.pkl / knn_scaler.pkl)
-instead of reusing the team's shared imputer.pkl / scaler.pkl, which
-were fitted on all 8 features and will NOT match this reduced set.
-This keeps your teammates' ANN/SVM files untouched until the team
-decides whether everyone should switch to the same 4 features.
-"""
+"""Train, evaluate, ablate, and save the KNN model only."""
 
 import json
 import sys
@@ -37,62 +26,28 @@ if __package__ in {None, ""}:
 
 from scripts.preprocessing import (  # noqa: E402
     DATA_DIR,
+    FEATURE_ORDER,
     MODELS_DIR,
     RANDOM_STATE,
     ZERO_AS_MISSING_COLS,
+    fit_preprocessors,
+    load_dataset,
     new_imputer,
     new_scaler,
-    load_dataset,
+    replace_invalid_zeros,
     split_raw_dataset,
+    transform_features,
 )
 
 
 MODEL_NAME = "KNN"
 
-# ---------------------------------------------------------------
-# MODIFIED: only these 4 features are used for prediction.
-# The original 8-feature FEATURE_ORDER from scripts/preprocessing
-# is intentionally NOT used here.
-# ---------------------------------------------------------------
-SELECTED_FEATURES = ["Glucose", "BMI", "Age", "Pregnancies"]
-
-
-def fit_selected_preprocessors(X_train_raw: pd.DataFrame):
-    """Fit a NEW imputer + scaler on only the 4 selected features
-    (cannot reuse the team's shared 8-feature imputer/scaler since the
-    column count no longer matches)."""
-    train_subset = X_train_raw[SELECTED_FEATURES].copy()
-    zero_columns = [c for c in SELECTED_FEATURES if c in ZERO_AS_MISSING_COLS]
-    train_subset[zero_columns] = train_subset[zero_columns].replace(0, np.nan)
-
-    imputer = new_imputer()
-    imputer.fit(train_subset)
-
-    train_imputed = imputer.transform(train_subset)
-    scaler = new_scaler()
-    scaler.fit(train_imputed)
-
-    return imputer, scaler
-
-
-def transform_selected_features(X_raw: pd.DataFrame, imputer, scaler):
-    """Apply the SAME imputer/scaler fitted above to any raw split
-    (train or test), using only the 4 selected features."""
-    subset = X_raw[SELECTED_FEATURES].copy()
-    zero_columns = [c for c in SELECTED_FEATURES if c in ZERO_AS_MISSING_COLS]
-    subset[zero_columns] = subset[zero_columns].replace(0, np.nan)
-
-    imputed = imputer.transform(subset)
-    scaled = scaler.transform(imputed)
-    return pd.DataFrame(scaled, columns=SELECTED_FEATURES, index=X_raw.index)
-
 
 def run_feature_ablation(base_estimator, X_train, X_test, y_train, y_test):
-    """Retrain KNN after removing each of the 4 selected features,
-    one experiment at a time (leave-one-out within the 4-feature set)."""
+    """Retrain KNN after removing each feature, one experiment at a time."""
     rows = []
-    for removed in [None] + SELECTED_FEATURES:
-        kept = [f for f in SELECTED_FEATURES if f != removed]
+    for removed in [None] + FEATURE_ORDER:
+        kept = [f for f in FEATURE_ORDER if f != removed]
         train_subset = X_train[kept].copy()
         test_subset = X_test[kept].copy()
         zero_columns = [c for c in kept if c in ZERO_AS_MISSING_COLS]
@@ -126,21 +81,12 @@ def run_feature_ablation(base_estimator, X_train, X_test, y_train, y_test):
 def main():
     data = load_dataset()
     X_train_raw, X_test_raw, y_train, y_test = split_raw_dataset(data)
+    X_train_clean = replace_invalid_zeros(X_train_raw)
 
     print("Dataset rows:", len(data))
     print("Verified original patients: 768")
-    print("Selected features:", SELECTED_FEATURES)
     print("KNN training patients:", len(y_train))
     print("KNN testing patients:", len(y_test))
-
-    # ---------------------------------------------------------------
-    # Build the 4-feature training data (zeros -> NaN, before scaling)
-    # for use inside the GridSearchCV pipeline (imputer/scaler are
-    # fitted fresh inside each CV fold, avoiding data leakage)
-    # ---------------------------------------------------------------
-    X_train_selected_raw = X_train_raw[SELECTED_FEATURES].copy()
-    zero_columns = [c for c in SELECTED_FEATURES if c in ZERO_AS_MISSING_COLS]
-    X_train_selected_raw[zero_columns] = X_train_selected_raw[zero_columns].replace(0, np.nan)
 
     cv = StratifiedKFold(
         n_splits=5,
@@ -166,21 +112,17 @@ def main():
         refit=True,
     )
 
-    print("\nSearching for best KNN parameters (4-feature set)...")
-    grid.fit(X_train_selected_raw, y_train)
+    print("\nSearching for best KNN parameters...")
+    grid.fit(X_train_clean, y_train)
     best_model_params = {
         key.removeprefix("model__"): value
         for key, value in grid.best_params_.items()
         if key.startswith("model__")
     }
 
-    # ---------------------------------------------------------------
-    # Fit the FINAL imputer/scaler on the 4 selected features only,
-    # then transform train/test with them
-    # ---------------------------------------------------------------
-    imputer, scaler = fit_selected_preprocessors(X_train_raw)
-    X_train = transform_selected_features(X_train_raw, imputer, scaler)
-    X_test = transform_selected_features(X_test_raw, imputer, scaler)
+    imputer, scaler = fit_preprocessors(X_train_raw)
+    X_train = transform_features(X_train_raw, imputer, scaler)
+    X_test = transform_features(X_test_raw, imputer, scaler)
 
     knn = KNeighborsClassifier(**best_model_params)
     knn.fit(X_train, y_train)
@@ -197,8 +139,7 @@ def main():
 
     print("\nBest KNN parameters:", best_model_params)
     print(f"Best CV accuracy: {grid.best_score_:.4f}")
-    print("\n===== KNN (Tuned, 4 Features) — Final Results =====")
-    print(f"Features : {SELECTED_FEATURES}")
+    print("\n===== KNN (Tuned) — Final Results =====")
     print(f"Accuracy : {accuracy:.4f}")
     print(f"Precision: {precision:.4f}")
     print(f"Recall   : {recall:.4f}")
@@ -209,17 +150,12 @@ def main():
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    # NOTE: saved with DIFFERENT filenames (knn_imputer.pkl / knn_scaler.pkl)
-    # so the team's shared imputer.pkl / scaler.pkl (fitted on 8 features
-    # for ANN/SVM) are NOT overwritten or broken.
-    joblib.dump(imputer, MODELS_DIR / "knn_imputer.pkl")
-    joblib.dump(scaler, MODELS_DIR / "knn_scaler.pkl")
+    joblib.dump(imputer, MODELS_DIR / "imputer.pkl")
+    joblib.dump(scaler, MODELS_DIR / "scaler.pkl")
     joblib.dump(knn, MODELS_DIR / "knn_model.pkl")
 
     pd.DataFrame([{
         "Model": MODEL_NAME,
-        "Features Used": json.dumps(SELECTED_FEATURES),
         "Accuracy": accuracy,
         "Precision": precision,
         "Recall": recall,
@@ -242,19 +178,18 @@ def main():
         "Probability": y_prob,
     }).to_csv(DATA_DIR / "knn_test_predictions.csv", index=False)
 
-    print("Running KNN leave-one-feature-out evaluation (within the 4 selected features)...")
+    print("Running KNN leave-one-feature-out evaluation...")
     ablation = run_feature_ablation(
         knn, X_train_raw, X_test_raw, y_train, y_test
     )
     ablation.to_csv(DATA_DIR / "knn_ablation.csv", index=False)
 
     print("\nSaved:")
-    print(" - models/knn_imputer.pkl  (4-feature imputer, KNN-only)")
-    print(" - models/knn_scaler.pkl   (4-feature scaler, KNN-only)")
+    print(" - models/imputer.pkl")
+    print(" - models/scaler.pkl")
     print(" - models/knn_model.pkl")
     print(" - Data/knn_metrics.csv")
     print(" - Data/knn_ablation.csv")
-    print(" - Data/knn_test_predictions.csv")
 
 
 if __name__ == "__main__":
