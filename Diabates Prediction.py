@@ -312,7 +312,7 @@ with st.sidebar:
         ],
         format_func=lambda value: {
             "Predict": "🩺  Predict",
-            "Batch CSV": "📄  Batch CSV",
+            "Batch CSV": "📄 Upload Batch CSV",
             "Compare Models": "📊  Compare Models",
             "Prediction History": "📋  Prediction History",
         }[value],
