@@ -534,25 +534,85 @@ elif page == "Batch CSV":
 
 
 elif page == "Compare Models":
-    st.markdown("## 📊 Model Comparison")
+    st.markdown("## 📊 Fair Model Comparison")
+
     st.caption(
-        "The currently loaded ANN, KNN and SVM artifacts are evaluated now on "
-        "the same 154 held-out original patients. Duplicate and generated rows "
-        "are excluded from testing, so these values may be lower than an "
-        "all-2,000-row random split."
+        "The currently loaded ANN, KNN and SVM artifacts are evaluated "
+        "on the same 154 held-out original patients. Duplicate and "
+        "generated rows are excluded from testing."
     )
+
     st.info(
-        "A command-line result showing 400 test rows is not the same test: it "
-        "includes duplicated/generated patients. This page intentionally uses "
-        "only unseen original patients to avoid an inflated accuracy claim."
+        "A command-line result showing a larger test set is not the same "
+        "evaluation because it may include duplicated or generated patients."
     )
+
     try:
         comparison = compute_current_model_comparison(
-            available_models, imputer, scaler
+            available_models,
+            imputer,
+            scaler,
         )
-        metric_columns = ["Accuracy", "Precision", "Recall", "F1 Score", "ROC-AUC"]
+
+        metric_columns = [
+            "Accuracy",
+            "Precision",
+            "Recall",
+            "F1 Score",
+            "ROC-AUC",
+        ]
+
         st.dataframe(
             comparison[metric_columns].style.format("{:.4f}"),
             width="stretch",
         )
-        st.bar_chart(comparison[metric_columns])
+
+        st.bar_chart(
+            comparison[metric_columns]
+        )
+
+        selected_report = st.selectbox(
+            "Show confusion matrix for",
+            comparison.index.tolist(),
+        )
+
+        row = comparison.loc[selected_report]
+
+        matrix = pd.DataFrame(
+            [
+                [int(row["TN"]), int(row["FP"])],
+                [int(row["FN"]), int(row["TP"])],
+            ],
+            index=[
+                "Actual 0",
+                "Actual 1",
+            ],
+            columns=[
+                "Predicted 0",
+                "Predicted 1",
+            ],
+        )
+
+        st.markdown(
+            f"#### {selected_report} Confusion Matrix"
+        )
+
+        st.dataframe(
+            matrix,
+            width="stretch",
+        )
+
+        st.download_button(
+            "⬇️ Download model comparison",
+            data=comparison.to_csv().encode("utf-8"),
+            file_name="model_comparison.csv",
+            mime="text/csv",
+        )
+
+    except (FileNotFoundError, NotFittedError) as error:
+        st.error(str(error))
+
+    except (ValueError, KeyError) as error:
+        st.error(
+            f"Unable to calculate the model comparison: {error}"
+        )
