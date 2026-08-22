@@ -1,175 +1,117 @@
 """
-train_ann.py
-------------
-This is the script that PRODUCES the .pkl files your app.py loads.
-Run this once locally after you finish training — it saves 3 files into
-the same folder: imputer.pkl, scaler.pkl, ann_model.pkl
+KNN (K-Nearest Neighbors) for Diabetes Prediction
 
-Your teammates copy THIS SAME imputer.pkl + scaler.pkl into their own
-training script (see the note near the bottom) so all 3 models are
-trained on identical preprocessing.
+Uses the SAME raw dataset, SAME imputer.pkl and SAME scaler.pkl that were
+already fitted and saved by ann_model.py, so ANN / SVM / KNN are all
+compared on identical preprocessing and an identical train/test split.
 """
-
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import joblib
-from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler
-from sklearn.neural_network import MLPClassifier
 
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import (
-    accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    confusion_matrix,
-    classification_report,
-    roc_auc_score
+    accuracy_score, precision_score, recall_score, f1_score,
+    confusion_matrix, classification_report, roc_auc_score
 )
 
-# ------------------------------------------------------------------
-# 1. Load your dataset
-# ------------------------------------------------------------------
-df = pd.read_csv("diabetes.csv")  # <-- change to your actual CSV path
+ROOT_DIR = Path(__file__).resolve().parents[1]
+DATA_DIR = ROOT_DIR / "Data"
+MODELS_DIR = ROOT_DIR / "models"
+
+RAW_PATH = DATA_DIR / "diabetes.csv"
+IMPUTER_FILE = MODELS_DIR / "imputer.pkl"
+SCALER_FILE = MODELS_DIR / "scaler.pkl"
+KNN_MODEL_FILE = MODELS_DIR / "knn_model.pkl"
+
+if not RAW_PATH.exists():
+    raise FileNotFoundError(
+        f"Dataset not found: {RAW_PATH}"
+    )
+
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+TARGET_COL = "Outcome"
+RANDOM_STATE = 42             # must match ann_model.py's split
 
 FEATURE_ORDER = [
     "Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
     "Insulin", "BMI", "DiabetesPedigreeFunction", "Age"
 ]
-TARGET = "Outcome"  # <-- change if your label column has a different name
 
-X = df[FEATURE_ORDER].copy()
-y = df[TARGET].copy()
+# ---------------------------------------------------------------
+# 1. Load raw data + reuse the SAME imputer/scaler already fitted
+#    by ann_model.py (do NOT re-fit new ones here -> that would
+#    make KNN's preprocessing inconsistent with ANN's/SVM's)
+# ---------------------------------------------------------------
+raw = pd.read_csv(RAW_PATH)
+imputer = joblib.load(
+    MODELS_DIR / "imputer.pkl"
+)
 
-# ------------------------------------------------------------------
-# 2. Treat 0 as missing for these columns (0 is not physiologically
-#    possible for these, so it really means "not recorded")
-# ------------------------------------------------------------------
-ZERO_AS_MISSING_COLS = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
-for c in ZERO_AS_MISSING_COLS:
-    X[c] = X[c].replace(0, np.nan)
+scaler = joblib.load(
+    MODELS_DIR / "scaler.pkl"
+)
 
-# ------------------------------------------------------------------
-# 3. Train/test split BEFORE fitting imputer/scaler (avoid leakage)
-# ------------------------------------------------------------------
+cols_with_invalid_zero = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
+clean = raw.copy()
+for c in cols_with_invalid_zero:
+    clean[c] = clean[c].replace(0, np.nan)
+
+X = clean[FEATURE_ORDER]
+y = clean[TARGET_COL]
+
+X_imputed = pd.DataFrame(imputer.transform(X), columns=FEATURE_ORDER)
+X_scaled = pd.DataFrame(scaler.transform(X_imputed), columns=FEATURE_ORDER)
+
+# ---------------------------------------------------------------
+# 2. Train/test split -- SAME settings as ann_model.py
+# ---------------------------------------------------------------
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
+    X_scaled, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y
 )
 
-# ------------------------------------------------------------------
-# 4. Fit imputer + scaler on the TRAIN split only, then transform both
-#    -> These two objects are what gets shared with teammates
-# ------------------------------------------------------------------
-imputer = SimpleImputer(strategy="median")
-X_train_imputed = imputer.fit_transform(X_train)
-X_test_imputed = imputer.transform(X_test)
-
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train_imputed)
-X_test_scaled = scaler.transform(X_test_imputed)
-
-# ------------------------------------------------------------------
-# 5. Tune and train ANN model
-# ------------------------------------------------------------------
-
-cv = StratifiedKFold(
-    n_splits=5,
-    shuffle=True,
-    random_state=42
-)
-
-ann = MLPClassifier(
-    solver="lbfgs",
-    max_iter=5000,
-    max_fun=50000,
-    random_state=42
-)
-
+# ---------------------------------------------------------------
+# 3. Hyperparameter tuning
+#    n_neighbors (K) controls the decision boundary. weights determines
+#    whether closer neighbors have higher influence, and metric defines
+#    the distance calculation algorithm.
+# ---------------------------------------------------------------
 param_grid = {
-    "hidden_layer_sizes": [
-        (8,),
-        (16,),
-        (32,),
-        (16, 8),
-        (32, 16),
-        (64, 32)
-    ],
-
-    "activation": [
-        "relu",
-        "tanh"
-    ],
-
-    "alpha": [
-        0.00001,
-        0.0001,
-        0.001,
-        0.01,
-        0.1
-    ]
+    "n_neighbors": range(1, 31),
+    "weights": ["uniform", "distance"],
+    "metric": ["euclidean", "manhattan"]
 }
-
 grid = GridSearchCV(
-    ann,
-    param_grid,
-    cv=cv,
-    scoring="accuracy",
-    n_jobs=-1
+    KNeighborsClassifier(),
+    param_grid, cv=5, scoring="f1", n_jobs=-1
 )
+grid.fit(X_train, y_train)
+knn = grid.best_estimator_
+print("Best hyperparameters:", grid.best_params_)
 
-grid.fit(X_train_scaled, y_train)
+# ---------------------------------------------------------------
+# 4. Evaluate on test set
+# ---------------------------------------------------------------
+y_pred = knn.predict(X_test)
+y_prob = knn.predict_proba(X_test)[:, 1]
 
-model = grid.best_estimator_
-
-print("\nBest ANN parameters:", grid.best_params_)
-print(f"Best CV accuracy: {grid.best_score_:.4f}")
-
-# ------------------------------------------------------------------
-# 6. Evaluate ANN
-# ------------------------------------------------------------------
-
-y_pred = model.predict(X_test_scaled)
-y_prob = model.predict_proba(X_test_scaled)[:, 1]
-
-print("\n===== ANN (Tuned MLP) — Final Results =====")
-
+print("\n===== KNN (Tuned) — Final Results =====")
 print(f"Accuracy : {accuracy_score(y_test, y_pred):.4f}")
 print(f"Precision: {precision_score(y_test, y_pred):.4f}")
 print(f"Recall   : {recall_score(y_test, y_pred):.4f}")
 print(f"F1-score : {f1_score(y_test, y_pred):.4f}")
 print(f"AUC      : {roc_auc_score(y_test, y_prob):.4f}")
-
 print("\nConfusion Matrix:\n", confusion_matrix(y_test, y_pred))
-
 print("\n", classification_report(y_test, y_pred))
 
-# ------------------------------------------------------------------
-# 7. Save all 3 files with joblib (NOT plain pickle — joblib handles
-#    numpy arrays inside sklearn objects more efficiently, and it's
-#    what your app.py already expects via joblib.load(...))
-# ------------------------------------------------------------------
-joblib.dump(imputer, "imputer.pkl")
-joblib.dump(scaler, "scaler.pkl")
-joblib.dump(model, "ann_model.pkl")
+# ---------------------------------------------------------------
+# 5. Save model for Streamlit deployment
+# ---------------------------------------------------------------
+joblib.dump(
+    knn,
+    KNN_MODEL_FILE
+)
 
-print("Saved: imputer.pkl, scaler.pkl, ann_model.pkl")
-
-# ------------------------------------------------------------------
-# NOTE FOR TEAMMATES (SVM / KNN):
-# Don't re-fit your own imputer/scaler. Instead:
-#
-#   imputer = joblib.load("imputer.pkl")   # <- the file you received
-#   scaler  = joblib.load("scaler.pkl")    # <- the file you received
-#
-#   X_train_imputed = imputer.transform(X_train)   # transform, NOT fit_transform
-#   X_train_scaled  = scaler.transform(X_train_imputed)
-#
-#   svm_model = SVC(probability=True, random_state=42)
-#   svm_model.fit(X_train_scaled, y_train)
-#   joblib.dump(svm_model, "svm_model.pkl")
-#
-# This guarantees all 3 models see numbers on the same scale, trained
-# on the same missing-value treatment, so accuracy/probability
-# comparisons between ANN vs SVM vs KNN are actually fair.
-# ------------------------------------------------------------------
+print(f"\nSaved: {KNN_MODEL_FILE}")
