@@ -616,22 +616,38 @@ elif page == "Prediction History":
                 "🗑️ Clear history",
                 width="stretch",
             ):
-                st.session_state.prediction_history_df = (
-                    empty_history()
+                # Create a new empty history table directly.
+                st.session_state[
+                    "prediction_history_df"
+                ] = pd.DataFrame(
+                    columns=[
+                        "timestamp",
+                        "model",
+                        "probability",
+                        "prediction",
+                    ] + FEATURES
                 )
 
+                # Delete the locally saved history file.
                 try:
                     HISTORY_FILE.unlink(
                         missing_ok=True
                     )
 
-                except OSError:
-                    pass
+                except OSError as error:
+                    st.warning(
+                        "The session history was cleared, "
+                        "but the saved history file could "
+                        f"not be deleted: {error}"
+                    )
 
+                # Refresh the page immediately.
                 st.rerun()
 
         filtered = history[
-            history["model"].isin(selected_models)
+            history["model"].isin(
+                selected_models
+            )
         ]
 
         st.dataframe(
