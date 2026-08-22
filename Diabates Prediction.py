@@ -376,7 +376,7 @@ if page == "Predict":
         age = st.number_input(
             "Age", 1, 120, 35, 1
         )
-        if st.button(
+           if st.button(
         f"🩺 Predict with {model_choice}",
         type="primary",
         width="stretch",
@@ -393,22 +393,18 @@ if page == "Predict":
         }])
 
         try:
-            # Validate all eight raw medical values.
             validated = validate_patient_frame(patient)
-
-            # Apply the saved imputer and scaler.
             scaled = transform_features(
                 validated,
                 imputer,
                 scaler,
             )
 
-            # Load only the model selected in the sidebar.
+            # Load and run only the selected model.
             selected_model = load_artifact(
                 available_models[model_choice]
             )
 
-            # Run only the selected model.
             selected_prediction = int(
                 selected_model.predict(scaled)[0]
             )
@@ -424,14 +420,12 @@ if page == "Predict":
                 else float(selected_probabilities[0])
             )
 
-            # Display only the selected model's result.
             render_result_card(
                 model_choice,
                 selected_prediction,
                 selected_probability,
             )
 
-            # Optional: show values after 0–1 normalization.
             with st.expander(
                 "View the 0.00–1.00 values sent to the model"
             ):
@@ -447,7 +441,6 @@ if page == "Predict":
                     hide_index=True,
                 )
 
-            # Save the selected prediction to history.
             save_history_row({
                 "timestamp": datetime.now().strftime(
                     "%Y-%m-%d %H:%M:%S"
