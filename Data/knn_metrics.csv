@@ -1,2 +1,0 @@
-Model,Accuracy,Precision,Recall,F1 Score,ROC-AUC,CV Accuracy Mean,CV Accuracy Std,TN,FP,FN,TP,Best Parameters,Training Patients,Test Patients
-KNN,0.7662337662337663,0.7045454545454546,0.5740740740740741,0.6326530612244898,0.8238888888888889,0.7752632280421164,0.027342798355807024,87,13,23,31,"{""metric"": ""manhattan"", ""n_neighbors"": 31, ""weights"": ""distance""}",614,154
