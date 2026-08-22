@@ -556,6 +556,3 @@ elif page == "Compare Models":
             width="stretch",
         )
         st.bar_chart(comparison[metric_columns])
-
-  
-           
