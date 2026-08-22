@@ -4,6 +4,8 @@ This file never retrains a model. It accepts raw medical values, validates
 them, applies the saved imputer and 0-1 scaler, and loads existing .pkl files.
 """
 
+import hashlib
+import io
 from datetime import datetime
 from pathlib import Path
 
@@ -12,12 +14,22 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from sklearn.exceptions import NotFittedError
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 
 from CSS.styles import inject_global_css
 from scripts.preprocessing import (
     DATA_DIR,
     FEATURE_ORDER as FEATURES,
     MODELS_DIR,
+    load_dataset,
+    split_raw_dataset,
     transform_features,
     validate_patient_frame,
 )
@@ -134,11 +146,8 @@ def render_result_card(model_choice, prediction, probability):
     st.markdown(
         f"""
         <div class="result-card">
-            <div class="result-title">Selected Model: {model_choice}</div>
+            <div class="result-title">Risk Assessment · {model_choice}</div>
             <div class="result-label" style="color:{color}">{label}</div>
-            <div style="margin:12px 0;font-size:1.05rem;">
-                Diabetes Probability: <strong>{risk_pct:.2f}%</strong>
-            </div>
             <div class="risk-bar-track">
                 <div class="risk-bar-fill" style="width:{risk_pct:.1f}%;background:{color};">
                     {risk_pct:.1f}%
@@ -190,17 +199,64 @@ def save_history_row(row):
         )
 
 
-def load_model_comparison():
-    reports = []
+def compute_current_model_comparison(available_models, imputer, scaler):
+    """Evaluate the currently loaded artifacts on one fair unseen test set."""
+    data = load_dataset()
+    X_train_raw, X_test_raw, y_train, y_test = split_raw_dataset(data)
+    X_test = transform_features(X_test_raw, imputer, scaler)
+
+    rows = []
     for label in ["ANN", "KNN", "SVM"]:
-        path = DATA_DIR / f"{label.lower()}_metrics.csv"
-        if path.exists():
-            reports.append(pd.read_csv(path))
-    if not reports:
-        raise FileNotFoundError(
-            "No model metric reports exist. Run each model script first."
-        )
-    return pd.concat(reports, ignore_index=True).set_index("Model")
+        if label not in available_models:
+            continue
+
+        model = load_artifact(available_models[label])
+        try:
+            prediction = np.asarray(model.predict(X_test), dtype=int)
+        except NotFittedError as error:
+            raise NotFittedError(
+                f"{label} model is not fitted. Run scripts/{label.title()}_Model.py "
+                "and replace the matching file in models/."
+            ) from error
+
+        probability = get_positive_probability(model, X_test)
+        tn, fp, fn, tp = confusion_matrix(
+            y_test, prediction, labels=[0, 1]
+        ).ravel()
+        rows.append({
+            "Model": label,
+            "Accuracy": accuracy_score(y_test, prediction),
+            "Precision": precision_score(
+                y_test, prediction, zero_division=0
+            ),
+            "Recall": recall_score(y_test, prediction, zero_division=0),
+            "F1 Score": f1_score(y_test, prediction, zero_division=0),
+            "ROC-AUC": (
+                np.nan
+                if probability is None
+                else roc_auc_score(y_test, probability)
+            ),
+            "TN": int(tn),
+            "FP": int(fp),
+            "FN": int(fn),
+            "TP": int(tp),
+            "Training Patients": len(y_train),
+            "Test Patients": len(y_test),
+        })
+
+    if not rows:
+        raise FileNotFoundError("No fitted model artifacts are available.")
+
+    return pd.DataFrame(rows).set_index("Model")
+
+
+def model_artifact_signature(available_models):
+    """Return a stable signature so persisted batch results refresh after retraining."""
+    paths = [IMPUTER_FILE, SCALER_FILE] + list(available_models.values())
+    return tuple(
+        (str(path), path.stat().st_mtime_ns, path.stat().st_size)
+        for path in paths
+    )
 
 
 def load_ablation_comparison():
@@ -306,11 +362,8 @@ if page == "Predict":
         }])
 
         try:
-            # Validate and preprocess the raw medical values once.
             validated = validate_patient_frame(patient)
             scaled = transform_features(validated, imputer, scaler)
-
-            # Load and run only the model chosen in the sidebar.
             selected_model = load_artifact(available_models[model_choice])
             selected_prediction = int(selected_model.predict(scaled)[0])
             selected_probabilities = get_positive_probability(
@@ -327,9 +380,7 @@ if page == "Predict":
 
             with st.expander("View the 0.00–1.00 values sent to the model"):
                 normalized = pd.DataFrame(
-                    scaled,
-                    columns=FEATURES,
-                    index=validated.index,
+                    scaled, columns=FEATURES, index=validated.index
                 )
                 st.dataframe(
                     normalized.style.format("{:.4f}"),
@@ -350,6 +401,12 @@ if page == "Predict":
                 ),
                 **validated.iloc[0].to_dict(),
             })
+        except NotFittedError:
+            st.error(
+                f"The saved {model_choice} model is not fitted. Run "
+                f"scripts/{model_choice.title()}_Model.py, confirm it saves to "
+                f"models/{model_choice.lower()}_model.pkl, then restart the app."
+            )
         except ValueError as error:
             st.error(str(error))
 
@@ -367,11 +424,39 @@ elif page == "Batch CSV":
         file_name="diabetes_patient_template.csv",
         mime="text/csv",
     )
-    uploaded_file = st.file_uploader("Upload patient CSV", type=["csv"])
+
+    if "batch_uploader_version" not in st.session_state:
+        st.session_state.batch_uploader_version = 0
+
+    uploaded_file = st.file_uploader(
+        "Upload patient CSV",
+        type=["csv"],
+        key=f"batch_csv_upload_{st.session_state.batch_uploader_version}",
+    )
 
     if uploaded_file is not None:
+        uploaded_bytes = uploaded_file.getvalue()
+        uploaded_hash = hashlib.sha256(uploaded_bytes).hexdigest()
+        if uploaded_hash != st.session_state.get("batch_upload_hash"):
+            st.session_state.batch_upload_bytes = uploaded_bytes
+            st.session_state.batch_upload_name = uploaded_file.name
+            st.session_state.batch_upload_hash = uploaded_hash
+            st.session_state.pop("batch_results", None)
+            st.session_state.pop("batch_result_signature", None)
+
+    saved_upload = st.session_state.get("batch_upload_bytes")
+    current_signature = model_artifact_signature(available_models)
+    result_signature = (
+        st.session_state.get("batch_upload_hash"),
+        current_signature,
+    )
+
+    if saved_upload is not None and (
+        "batch_results" not in st.session_state
+        or st.session_state.get("batch_result_signature") != result_signature
+    ):
         try:
-            uploaded = pd.read_csv(uploaded_file)
+            uploaded = pd.read_csv(io.BytesIO(saved_upload))
             extra = [column for column in uploaded.columns if column not in FEATURES]
             if extra:
                 st.info("Extra columns ignored: " + ", ".join(extra))
@@ -380,11 +465,6 @@ elif page == "Batch CSV":
                 uploaded, available_models, imputer, scaler
             )
             duplicate_count = int(patients.duplicated().sum())
-            if duplicate_count:
-                st.warning(
-                    f"{duplicate_count} duplicate patient row(s) detected. They "
-                    "are preserved to keep the uploaded row order."
-                )
 
             results = patients.copy()
             results.insert(0, "Patient Row", np.arange(1, len(results) + 1))
@@ -397,26 +477,79 @@ elif page == "Batch CSV":
                     np.nan if probabilities is None else probabilities
                 )
 
-            st.success(f"Processed {len(results)} patient(s).")
-            st.dataframe(results, width="stretch", hide_index=True)
+            st.session_state.batch_results = results
+            st.session_state.batch_result_signature = result_signature
+            st.session_state.batch_duplicate_count = duplicate_count
+        except NotFittedError as error:
+            st.error(
+                "A saved model is not fitted. Run all three separate training "
+                f"scripts and replace the model artifacts. Details: {error}"
+            )
+        except (
+            ValueError,
+            pd.errors.ParserError,
+            pd.errors.EmptyDataError,
+        ) as error:
+            st.error(f"Unable to process CSV: {error}")
+
+    if "batch_results" in st.session_state:
+        results = st.session_state.batch_results
+        upload_name = st.session_state.get(
+            "batch_upload_name", "uploaded patient CSV"
+        )
+        st.success(
+            f"Processed {len(results)} patient(s) from {upload_name}. "
+            "These results remain available when you visit another page."
+        )
+        duplicate_count = st.session_state.get("batch_duplicate_count", 0)
+        if duplicate_count:
+            st.warning(
+                f"{duplicate_count} duplicate patient row(s) were detected "
+                "and preserved to keep the uploaded row order."
+            )
+        st.dataframe(results, width="stretch", hide_index=True)
+
+        download_col, clear_col = st.columns([3, 1])
+        with download_col:
             st.download_button(
                 "⬇️ Download batch prediction results",
                 results.to_csv(index=False).encode("utf-8"),
                 file_name="diabetes_batch_predictions.csv",
                 mime="text/csv",
+                width="stretch",
             )
-        except (ValueError, pd.errors.ParserError, pd.errors.EmptyDataError) as error:
-            st.error(f"Unable to process CSV: {error}")
+        with clear_col:
+            if st.button("🗑️ Clear batch", width="stretch"):
+                for key in [
+                    "batch_upload_bytes",
+                    "batch_upload_name",
+                    "batch_upload_hash",
+                    "batch_results",
+                    "batch_result_signature",
+                    "batch_duplicate_count",
+                ]:
+                    st.session_state.pop(key, None)
+                st.session_state.batch_uploader_version += 1
+                st.rerun()
 
 
 elif page == "Compare Models":
     st.markdown("## 📊 Fair Model Comparison")
     st.caption(
-        "These saved metrics come from the same 614 original training patients "
-        "and 154 held-out original test patients. Streamlit does not retrain."
+        "The currently loaded ANN, KNN and SVM artifacts are evaluated now on "
+        "the same 154 held-out original patients. Duplicate and generated rows "
+        "are excluded from testing, so these values may be lower than an "
+        "all-2,000-row random split."
+    )
+    st.info(
+        "A command-line result showing 400 test rows is not the same test: it "
+        "includes duplicated/generated patients. This page intentionally uses "
+        "only unseen original patients to avoid an inflated accuracy claim."
     )
     try:
-        comparison = load_model_comparison()
+        comparison = compute_current_model_comparison(
+            available_models, imputer, scaler
+        )
         metric_columns = ["Accuracy", "Precision", "Recall", "F1 Score", "ROC-AUC"]
         st.dataframe(
             comparison[metric_columns].style.format("{:.4f}"),
@@ -440,8 +573,8 @@ elif page == "Compare Models":
             file_name="model_comparison.csv",
             mime="text/csv",
         )
-    except FileNotFoundError as error:
-        st.warning(str(error))
+    except (FileNotFoundError, NotFittedError) as error:
+        st.error(str(error))
 
 
 elif page == "Feature Ablation":
