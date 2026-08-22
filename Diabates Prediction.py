@@ -534,7 +534,7 @@ elif page == "Batch CSV":
 
 
 elif page == "Compare Models":
-    st.markdown("## 📊 Fair Model Comparison")
+    st.markdown("## 📊 Model Comparison")
     st.caption(
         "The currently loaded ANN, KNN and SVM artifacts are evaluated now on "
         "the same 154 held-out original patients. Duplicate and generated rows "
@@ -558,81 +558,4 @@ elif page == "Compare Models":
         st.bar_chart(comparison[metric_columns])
 
         selected_report = st.selectbox(
-            "Show confusion matrix for", comparison.index.tolist()
-        )
-        row = comparison.loc[selected_report]
-        matrix = pd.DataFrame(
-            [[int(row["TN"]), int(row["FP"])], [int(row["FN"]), int(row["TP"])]],
-            index=["Actual 0", "Actual 1"],
-            columns=["Predicted 0", "Predicted 1"],
-        )
-        st.dataframe(matrix, width="stretch")
-        st.download_button(
-            "⬇️ Download model comparison",
-            comparison.to_csv().encode("utf-8"),
-            file_name="model_comparison.csv",
-            mime="text/csv",
-        )
-    except (FileNotFoundError, NotFittedError) as error:
-        st.error(str(error))
-
-
-elif page == "Feature Ablation":
-    st.markdown("## 🔬 Leave-One-Feature-Out Testing")
-    st.caption(
-        "Each row is produced by retraining that model with the named feature "
-        "removed. No feature is deleted only at prediction time."
-    )
-    ablation, missing = load_ablation_comparison()
-    if missing:
-        st.warning("Missing ablation reports for: " + ", ".join(missing))
-    if ablation is None:
-        st.info("Run the three model scripts to generate ablation reports.")
-    else:
-        numeric_columns = [c for c in ablation.columns if c != "Removed Feature"]
-        st.dataframe(
-            ablation.style.format({c: "{:.4f}" for c in numeric_columns}),
-            width="stretch",
-            hide_index=True,
-        )
-        st.download_button(
-            "⬇️ Download feature-ablation comparison",
-            ablation.to_csv(index=False).encode("utf-8"),
-            file_name="feature_ablation_comparison.csv",
-            mime="text/csv",
-        )
-
-
-else:
-    st.markdown("## 📋 Prediction History")
-    history = load_history()
-    if history.empty:
-        st.info("No saved single-patient predictions yet.")
-    else:
-        col_a, col_b = st.columns([3, 1])
-        with col_a:
-            choices = sorted(history["model"].dropna().unique())
-            selected_models = st.multiselect(
-                "Filter by model", choices, default=choices
-            )
-        with col_b:
-            st.write("")
-            if st.button("🗑️ Clear history", width="stretch"):
-                try:
-                    HISTORY_FILE.unlink(missing_ok=True)
-                except OSError as error:
-                    st.error(f"Unable to clear history: {error}")
-                st.rerun()
-
-        filtered = history[history["model"].isin(selected_models)]
-        st.dataframe(
-            filtered.sort_values("timestamp", ascending=False),
-            width="stretch",
-            hide_index=True,
-        )
-        st.download_button(
-            "⬇️ Download history",
-            filtered.to_csv(index=False).encode("utf-8"),
-            file_name="prediction_history.csv",
-            mime="text/csv",
-        )
+           
