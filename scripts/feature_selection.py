@@ -1,45 +1,53 @@
 """
-feature_selection.py
----------------------
-Performs feature selection for the group's Diabetes Prediction project.
+team_feature_selection.py
+---------------------------
+Answers the report question: "Why did you choose this many features --
+why not more, why not fewer?" -- in a way that is FAIR to all 3 team
+models (ANN, SVM, KNN), not just KNN.
 
-Combines TWO methods:
-  1. Filter method   -> correlation of each feature with Outcome
-  2. Wrapper method   -> SequentialFeatureSelector using KNN
+Method:
+  1. Filter method (correlation with Outcome) is used to RANK features.
+     This step is model-agnostic -- it doesn't favor any one algorithm,
+     so it's a fair starting point for the whole team.
+  2. For each possible number of features (1 to 8), take the TOP-N
+     ranked features and test them on quick default versions of ALL
+     THREE models (ANN, SVM, KNN) using cross-validation.
+  3. Plot THREE lines on one graph (ANN / SVM / KNN), so you can show
+     the chosen feature count works well across all three algorithms,
+     not just yours.
 
-IMPORTANT NOTE ON METHOD CHOICE:
-  RFE (Recursive Feature Elimination) is NOT used here because it
-  requires the model to expose coef_ or feature_importances_, which
-  KNN does not have. SequentialFeatureSelector works with ANY estimator
-  (including KNN) by repeatedly training + cross-validating, so it is
-  the correct wrapper method to use for a KNN-based selection.
+NOTE: the ANN/SVM/KNN models used HERE are quick, default-parameter
+versions purely for this feature-count comparison -- they are NOT
+your teammates' final tuned models (Ann_Model.py / Svm_Model.py /
+Knn_Model.py still do their own separate GridSearchCV tuning on
+whichever final feature set the team agrees on).
 
 Reuses the SAME shared imputer.pkl / scaler.pkl / FEATURE_ORDER /
-RANDOM_STATE / train-test split settings as Ann_Model.py, Svm_Model.py,
-and Knn_Model.py, so the selected feature subset is valid for comparing
-ANN / SVM / KNN fairly -- not just for your own KNN model.
+RANDOM_STATE as the team's training scripts.
 
 Requirements:
-  pip install pandas numpy scikit-learn joblib
+  pip install pandas numpy scikit-learn matplotlib joblib
 
 Run:
-  python feature_selection.py
+  python team_feature_selection.py
 
 Required files in the same folder:
   diabetes.csv, imputer.pkl, scaler.pkl
 
 Output:
-  - Prints the correlation table (filter method)
-  - Prints the selected features (wrapper method)
-  - Saves 'selected_features.pkl' -- share this file with your teammates
+  - Prints a table: number of features -> features used -> F1 per model
+  - Saves 'team_feature_count_vs_score.png' -- the justification graph
+  - Saves 'selected_features.pkl' -- the recommended feature set to share
 """
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import joblib
-from sklearn.model_selection import train_test_split, StratifiedKFold
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.feature_selection import SequentialFeatureSelector
+from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
 
 RAW_PATH = "diabetes.csv"
 TARGET_COL = "Outcome"
@@ -51,9 +59,8 @@ FEATURE_ORDER = [
 ]
 ZERO_AS_MISSING_COLS = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
 
-# How many features to keep in the wrapper method step.
-# Adjust this if you want a smaller/larger subset.
-N_FEATURES_TO_SELECT = 5
+OUTPUT_GRAPH = "team_feature_count_vs_score.png"
+OUTPUT_SELECTED_FEATURES = "selected_features.pkl"
 
 
 def main():
@@ -72,29 +79,6 @@ def main():
     y = clean[TARGET_COL]
 
     X_imputed = pd.DataFrame(imputer.transform(X), columns=FEATURE_ORDER)
-
-    # ---------------------------------------------------------------
-    # STEP 1: Filter method -- correlation with Outcome
-    # (computed on imputed, UNSCALED data so correlation values stay
-    # interpretable in original feature units)
-    # ---------------------------------------------------------------
-    corr_df = X_imputed.copy()
-    corr_df[TARGET_COL] = y.values
-    correlations = corr_df.corr()[TARGET_COL].drop(TARGET_COL)
-    correlations_sorted = correlations.reindex(
-        correlations.abs().sort_values(ascending=False).index
-    )
-
-    print("===== STEP 1: Filter Method (Correlation with Outcome) =====")
-    print(correlations_sorted.round(4).to_string())
-    print()
-    print("Interpretation: features with correlation closer to +1 or -1 have")
-    print("a stronger linear relationship with diabetes Outcome. Values near 0")
-    print("suggest the feature is weakly related on its own.\n")
-
-    # ---------------------------------------------------------------
-    # STEP 2: Wrapper method -- Sequential Feature Selector using KNN
-    # ---------------------------------------------------------------
     X_scaled = pd.DataFrame(scaler.transform(X_imputed), columns=FEATURE_ORDER)
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -103,43 +87,97 @@ def main():
 
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
 
-    # A reasonable fixed K just for the selection process itself
-    # (this is NOT your final tuned KNN model -- that still comes from
-    # Knn_Model.py's own GridSearchCV)
-    knn_for_selection = KNeighborsClassifier(n_neighbors=15)
+    # ---------------------------------------------------------------
+    # 2. STEP 1: Filter method -- rank features by correlation with
+    #    Outcome (model-agnostic, fair starting point for the team)
+    # ---------------------------------------------------------------
+    corr_df = X_imputed.copy()
+    corr_df[TARGET_COL] = y.values
+    correlations = corr_df.corr()[TARGET_COL].drop(TARGET_COL).abs()
+    ranked_features = correlations.sort_values(ascending=False).index.tolist()
 
-    sfs = SequentialFeatureSelector(
-        knn_for_selection,
-        n_features_to_select=N_FEATURES_TO_SELECT,
-        direction="forward",
-        scoring="f1",
-        cv=cv,
-        n_jobs=-1
-    )
-    sfs.fit(X_train, y_train)
-
-    selected_mask = sfs.get_support()
-    selected_features = [str(f) for f in np.array(FEATURE_ORDER)[selected_mask]]
-    dropped_features = [str(f) for f in np.array(FEATURE_ORDER)[~selected_mask]]
-
-    print("===== STEP 2: Wrapper Method (SequentialFeatureSelector + KNN) =====")
-    print(f"Selected {N_FEATURES_TO_SELECT} out of {len(FEATURE_ORDER)} features:")
-    print(f"  KEEP    -> {selected_features}")
-    print(f"  DROPPED -> {dropped_features}")
+    print("===== Feature ranking by |correlation| with Outcome =====")
+    print(correlations.reindex(ranked_features).round(4).to_string())
     print()
 
     # ---------------------------------------------------------------
-    # Save the selected feature list so ANN / SVM / KNN scripts can
-    # ALL reuse the SAME subset for a fair comparison
+    # 3. STEP 2: For each N, test top-N features on ALL 3 model types
     # ---------------------------------------------------------------
-    joblib.dump(selected_features, "selected_features.pkl")
-    print("Saved: selected_features.pkl")
-    print("\nShare this file with your teammates. Everyone should load it and")
-    print("subset their FEATURE_ORDER / X using these columns BEFORE training,")
-    print("so ANN / SVM / KNN are all compared on the same reduced feature set.")
-    print("\nExample for a teammate's script:")
-    print('    selected_features = joblib.load("selected_features.pkl")')
-    print('    X = clean[selected_features]   # instead of clean[FEATURE_ORDER]')
+    models = {
+        "ANN": MLPClassifier(hidden_layer_sizes=(16, 8), max_iter=2000, random_state=RANDOM_STATE),
+        "SVM": SVC(kernel="rbf", C=1.0, random_state=RANDOM_STATE),
+        "KNN": KNeighborsClassifier(n_neighbors=15),
+    }
+
+    n_options = range(1, len(FEATURE_ORDER) + 1)
+    results = []
+
+    print("Testing every feature count (1 to 8) on ANN, SVM, and KNN...\n")
+
+    for n in n_options:
+        selected = ranked_features[:n]
+        row = {"n_features": n, "features": selected}
+
+        for model_name, model in models.items():
+            scores = cross_val_score(
+                model, X_train[selected], y_train,
+                cv=cv, scoring="f1", n_jobs=-1
+            )
+            row[model_name] = scores.mean()
+
+        results.append(row)
+        print(f"[{n}/8] Features: {selected}")
+        print(f"       ANN F1: {row['ANN']:.4f} | SVM F1: {row['SVM']:.4f} | KNN F1: {row['KNN']:.4f}\n")
+
+    results_df = pd.DataFrame(results)
+
+    # ---------------------------------------------------------------
+    # 4. Find the best N based on the AVERAGE of all 3 models
+    #    (fair to the whole team, not biased toward one model)
+    # ---------------------------------------------------------------
+    results_df["team_avg_f1"] = results_df[["ANN", "SVM", "KNN"]].mean(axis=1)
+    best_row = results_df.loc[results_df["team_avg_f1"].idxmax()]
+    best_n = int(best_row["n_features"])
+    best_features = best_row["features"]
+    best_avg = best_row["team_avg_f1"]
+
+    print("===== SUMMARY =====")
+    print(f"Best number of features (averaged across ANN/SVM/KNN): {best_n}")
+    print(f"Selected features: {best_features}")
+    print(f"Team-average F1 at this point: {best_avg:.4f}")
+
+    # ---------------------------------------------------------------
+    # 5. Plot: Number of Features vs F1 Score, ONE LINE PER MODEL
+    # ---------------------------------------------------------------
+    plt.figure(figsize=(9, 6))
+    plt.plot(results_df["n_features"], results_df["ANN"], marker='o', label="ANN", color="#6C63FF", linewidth=2)
+    plt.plot(results_df["n_features"], results_df["SVM"], marker='s', label="SVM", color="#FF6B6B", linewidth=2)
+    plt.plot(results_df["n_features"], results_df["KNN"], marker='^', label="KNN", color="#22B07D", linewidth=2)
+    plt.plot(results_df["n_features"], results_df["team_avg_f1"], marker='D', label="Team Average",
+              color="black", linewidth=2, linestyle='--')
+
+    plt.axvline(x=best_n, color='red', linestyle=':', alpha=0.6)
+    plt.scatter([best_n], [best_avg], color='red', s=150, zorder=5,
+                label=f"Best: {best_n} features (avg F1 = {best_avg:.4f})")
+
+    plt.title("Number of Features vs F1 Score (ANN, SVM, KNN)", fontsize=13, fontweight='bold')
+    plt.xlabel("Number of Features Selected")
+    plt.ylabel("Mean Cross-Validated F1 Score")
+    plt.xticks(list(n_options))
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(OUTPUT_GRAPH, dpi=200)
+    plt.close()
+    print(f"\nSaved graph: {OUTPUT_GRAPH}")
+
+    # ---------------------------------------------------------------
+    # 6. Save the recommended feature set for the whole team to share
+    # ---------------------------------------------------------------
+    joblib.dump(best_features, OUTPUT_SELECTED_FEATURES)
+    print(f"Saved: {OUTPUT_SELECTED_FEATURES} (features: {best_features})")
+    print("\nShare this file + the graph with your teammates as justification")
+    print("for the final feature set used across ANN / SVM / KNN.")
 
 
 if __name__ == "__main__":
