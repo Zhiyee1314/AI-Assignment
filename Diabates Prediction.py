@@ -564,36 +564,7 @@ elif page == "Compare Models":
             comparison[metric_columns]
         )
 
-        selected_report = st.selectbox(
-            "Show confusion matrix for",
-            comparison.index.tolist(),
-        )
-
-        row = comparison.loc[selected_report]
-
-        matrix = pd.DataFrame(
-            [
-                [int(row["TN"]), int(row["FP"])],
-                [int(row["FN"]), int(row["TP"])],
-            ],
-            index=[
-                "Actual 0",
-                "Actual 1",
-            ],
-            columns=[
-                "Predicted 0",
-                "Predicted 1",
-            ],
-        )
-
-        st.markdown(
-            f"#### {selected_report} Confusion Matrix"
-        )
-
-        st.dataframe(
-            matrix,
-            width="stretch",
-        )
+       
 
         st.download_button(
             "⬇️ Download model comparison",
