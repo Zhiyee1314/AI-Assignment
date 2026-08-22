@@ -534,17 +534,12 @@ elif page == "Batch CSV":
 
 
 elif page == "Compare Models":
-    st.markdown("## 📊 Fair Model Comparison")
+    st.markdown("## 📊 Model Comparison")
 
     st.caption(
         "The currently loaded ANN, KNN and SVM artifacts are evaluated "
         "on the same 154 held-out original patients. Duplicate and "
         "generated rows are excluded from testing."
-    )
-
-    st.info(
-        "A command-line result showing a larger test set is not the same "
-        "evaluation because it may include duplicated or generated patients."
     )
 
     try:
