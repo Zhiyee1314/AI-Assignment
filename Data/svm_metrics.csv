@@ -1,0 +1,2 @@
+Model,Accuracy,Precision,Recall,F1 Score,ROC-AUC,CV Accuracy Mean,CV Accuracy Std,TN,FP,FN,TP,Best Parameters,Best Threshold,Training Patients,Test Patients
+SVM,0.7077922077922078,0.5957446808510638,0.5185185185185185,0.5544554455445545,0.8227777777777778,0.7947620951619352,0.017676488623968502,81,19,26,28,"{""C"": 10, ""class_weight"": null, ""gamma"": 0.3, ""kernel"": ""rbf""}",0.4837137432862019,614,154
