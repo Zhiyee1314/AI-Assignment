@@ -557,5 +557,5 @@ elif page == "Compare Models":
         )
         st.bar_chart(comparison[metric_columns])
 
-        selected_report = st.selectbox(
+  
            
