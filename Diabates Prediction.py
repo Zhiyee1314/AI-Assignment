@@ -232,10 +232,12 @@ if page == "Predict":
 imputer, scaler = get_shared_preprocessors()
 
 if imputer is None or scaler is None:
-    st.warning(
-        "`imputer.pkl` and/or `scaler.pkl` not found in `models/`. Predictions will run on raw "
-        "input values without the shared preprocessing your team agreed on."
+    st.error(
+        "`models/imputer.pkl` and `models/scaler.pkl` are required. "
+        "Prediction has been stopped to prevent sending unprocessed medical "
+        "values to models trained with scaled inputs."
     )
+    st.stop()
 
 
 # ----------------------------------------------------------------------
@@ -321,147 +323,6 @@ if page == "Predict":
             "DiabetesPedigreeFunction": dpf,
             "Age": age,
         })
-
-if page == "Predict":
-    render_header(model_choice)
-
-    st.markdown("#### 📝 Patient Information")
-    st.caption(
-        "Enter normal medical values. Missing medical measurements may be "
-        "entered as 0; the backend performs median imputation and 0-1 scaling."
-    )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        pregnancies = st.number_input(
-            "Pregnancies", 0, 20, 3, 1
-        )
-
-        glucose = st.number_input(
-            "Glucose", 0, 300, 162, 1
-        )
-
-        blood_pressure = st.number_input(
-            "Blood Pressure", 0, 200, 80, 1
-        )
-
-        skin_thickness = st.number_input(
-            "Skin Thickness", 0, 100, 20, 1
-        )
-
-    with col2:
-        insulin = st.number_input(
-            "Insulin", 0, 900, 70, 1
-        )
-
-        bmi = st.number_input(
-            "BMI",
-            0.0,
-            70.0,
-            30.0,
-            0.1,
-            format="%.1f",
-        )
-
-        dpf = st.number_input(
-            "Diabetes Pedigree Function",
-            0.0,
-            3.0,
-            0.51,
-            0.01,
-            format="%.2f",
-        )
-
-        age = st.number_input(
-            "Age", 1, 120, 35, 1
-        )
-           if st.button(
-        f"🩺 Predict with {model_choice}",
-        type="primary",
-        width="stretch",
-    ):
-        patient = pd.DataFrame([{
-            "Pregnancies": pregnancies,
-            "Glucose": glucose,
-            "BloodPressure": blood_pressure,
-            "SkinThickness": skin_thickness,
-            "Insulin": insulin,
-            "BMI": bmi,
-            "DiabetesPedigreeFunction": dpf,
-            "Age": age,
-        }])
-
-        try:
-            validated = validate_patient_frame(patient)
-            scaled = transform_features(
-                validated,
-                imputer,
-                scaler,
-            )
-
-            # Load and run only the selected model.
-            selected_model = load_artifact(
-                available_models[model_choice]
-            )
-
-            selected_prediction = int(
-                selected_model.predict(scaled)[0]
-            )
-
-            selected_probabilities = get_positive_probability(
-                selected_model,
-                scaled,
-            )
-
-            selected_probability = (
-                None
-                if selected_probabilities is None
-                else float(selected_probabilities[0])
-            )
-
-            render_result_card(
-                model_choice,
-                selected_prediction,
-                selected_probability,
-            )
-
-            with st.expander(
-                "View the 0.00–1.00 values sent to the model"
-            ):
-                normalized = pd.DataFrame(
-                    scaled,
-                    columns=FEATURES,
-                    index=validated.index,
-                )
-
-                st.dataframe(
-                    normalized.style.format("{:.4f}"),
-                    width="stretch",
-                    hide_index=True,
-                )
-
-            save_history_row({
-                "timestamp": datetime.now().strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                ),
-                "model": model_choice,
-                "probability": (
-                    np.nan
-                    if selected_probability is None
-                    else round(selected_probability * 100, 2)
-                ),
-                "prediction": (
-                    "High Risk"
-                    if selected_prediction == 1
-                    else "Low Risk"
-                ),
-                **validated.iloc[0].to_dict(),
-            })
-
-        except ValueError as error:
-            st.error(str(error))
-
 
 # ----------------------------------------------------------------------
 # PAGE: COMPARE MODELS
