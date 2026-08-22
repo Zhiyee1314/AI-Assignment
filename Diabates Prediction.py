@@ -580,3 +580,74 @@ elif page == "Compare Models":
         st.error(
             f"Unable to calculate the model comparison: {error}"
         )
+
+elif page == "Prediction History":
+    st.markdown("## 📋 Prediction History")
+
+    history = load_history()
+
+    if history.empty:
+        st.info(
+            "No successful single-patient predictions have been saved yet. "
+            "Go to Predict, select a model and complete a prediction first."
+        )
+
+    else:
+        col_a, col_b = st.columns([3, 1])
+
+        with col_a:
+            model_choices = sorted(
+                history["model"]
+                .dropna()
+                .unique()
+                .tolist()
+            )
+
+            selected_models = st.multiselect(
+                "Filter by model",
+                options=model_choices,
+                default=model_choices,
+            )
+
+        with col_b:
+            st.write("")
+
+            if st.button(
+                "🗑️ Clear history",
+                width="stretch",
+            ):
+                st.session_state.prediction_history_df = (
+                    empty_history()
+                )
+
+                try:
+                    HISTORY_FILE.unlink(
+                        missing_ok=True
+                    )
+
+                except OSError:
+                    pass
+
+                st.rerun()
+
+        filtered = history[
+            history["model"].isin(selected_models)
+        ]
+
+        st.dataframe(
+            filtered.sort_values(
+                "timestamp",
+                ascending=False,
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+
+        st.download_button(
+            "⬇️ Download prediction history",
+            data=filtered.to_csv(
+                index=False
+            ).encode("utf-8"),
+            file_name="prediction_history.csv",
+            mime="text/csv",
+        )
