@@ -5,7 +5,7 @@ Uses the SAME raw dataset, SAME imputer.pkl and SAME scaler.pkl that were
 already fitted and saved by ann_model.py, so ANN / SVM / KNN are all
 compared on identical preprocessing and an identical train/test split.
 """
-
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import joblib
@@ -17,7 +17,21 @@ from sklearn.metrics import (
     confusion_matrix, classification_report, roc_auc_score
 )
 
-RAW_PATH = "diabetes.csv"     # original, unprocessed dataset (same folder)
+ROOT_DIR = Path(__file__).resolve().parents[1]
+DATA_DIR = ROOT_DIR / "Data"
+MODELS_DIR = ROOT_DIR / "models"
+
+RAW_PATH = DATA_DIR / "diabetes.csv"
+IMPUTER_FILE = MODELS_DIR / "imputer.pkl"
+SCALER_FILE = MODELS_DIR / "scaler.pkl"
+KNN_MODEL_FILE = MODELS_DIR / "knn_model.pkl"
+
+if not RAW_PATH.exists():
+    raise FileNotFoundError(
+        f"Dataset not found: {RAW_PATH}"
+    )
+
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
 TARGET_COL = "Outcome"
 RANDOM_STATE = 42             # must match ann_model.py's split
 
@@ -32,8 +46,13 @@ FEATURE_ORDER = [
 #    make KNN's preprocessing inconsistent with ANN's/SVM's)
 # ---------------------------------------------------------------
 raw = pd.read_csv(RAW_PATH)
-imputer = joblib.load("imputer.pkl")
-scaler = joblib.load("scaler.pkl")
+imputer = joblib.load(
+    MODELS_DIR / "imputer.pkl"
+)
+
+scaler = joblib.load(
+    MODELS_DIR / "scaler.pkl"
+)
 
 cols_with_invalid_zero = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
 clean = raw.copy()
@@ -90,5 +109,9 @@ print("\n", classification_report(y_test, y_pred))
 # ---------------------------------------------------------------
 # 5. Save model for Streamlit deployment
 # ---------------------------------------------------------------
-joblib.dump(knn, "knn_model.pkl")
-print("\nSaved: knn_model.pkl")
+joblib.dump(
+    knn,
+    KNN_MODEL_FILE
+)
+
+print(f"\nSaved: {KNN_MODEL_FILE}")
