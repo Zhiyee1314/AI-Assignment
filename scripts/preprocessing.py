@@ -54,19 +54,12 @@ VALID_RANGES = {
     "Age": (1, 120),
 }
 
-# The audited Data/diabetes.csv contains the original 768 Pima records first,
-# followed by 232 exact duplicates and 1,000 generated rows.  Generated data
-# cannot be used in the final test set, and its provenance does not prove that
-# it was created from training-only records.  The scientifically defensible
-# comparison therefore uses only the original 768 patients.
-# Rows 1–768: verified original Pima patients
-ORIGINAL_ROW_COUNT = 768
-
-# Rows 769–1000: known duplicate block
-DUPLICATE_BLOCK_END = 1000
-
-# Complete current dataset size
-EXPECTED_AUDITED_ROWS = 10000
+# This requested configuration uses every row in the current 2,000-row CSV.
+# The split is still performed before the imputer/scaler are fitted, so test
+# statistics do not leak into preprocessing. Because the CSV contains generated
+# and duplicate records, its score must be described as duplicate/generated-
+# inclusive evaluation rather than independent real-patient validation.
+EXPECTED_AUDITED_ROWS = 2000
 
 
 def validate_dataset(data: pd.DataFrame) -> pd.DataFrame:
@@ -114,44 +107,25 @@ def load_dataset(path: Path = DATA_PATH) -> pd.DataFrame:
 
 
 def get_verified_original_data(data: pd.DataFrame) -> pd.DataFrame:
-    """Return the verified original patients and reject changed provenance."""
+    """Return all 2,000 rows for the requested inclusive evaluation.
+
+    The legacy function name is retained so existing app/model imports continue
+    to work without modification.
+    """
     if len(data) != EXPECTED_AUDITED_ROWS:
         raise ValueError(
             f"Expected the audited {EXPECTED_AUDITED_ROWS}-row dataset, but "
             f"found {len(data)} rows. Review the provenance before training."
         )
 
-    columns = FEATURE_ORDER + [TARGET_COL]
-    original = data.iloc[:ORIGINAL_ROW_COUNT][columns].copy()
-    duplicate_block = data.iloc[
-        ORIGINAL_ROW_COUNT:DUPLICATE_BLOCK_END
-    ][columns].copy()
-
-    if original.duplicated(subset=columns).any():
-        raise ValueError(
-            "The original 768-patient section unexpectedly contains exact "
-            "duplicates. Stop and review the dataset."
-        )
-
-    original_rows = set(map(tuple, original.to_numpy()))
-    verified_duplicate = duplicate_block.apply(
-        lambda row: tuple(row) in original_rows,
-        axis=1,
-    )
-    if not verified_duplicate.all():
-        raise ValueError(
-            "Rows 769-1000 no longer match the audited duplicate block. "
-            "Stop and review the dataset provenance."
-        )
-
-    return original
+    return data[FEATURE_ORDER + [TARGET_COL]].copy()
 
 
 def split_raw_dataset(data: pd.DataFrame):
-    """Create the common stratified split from original patients only."""
-    original = get_verified_original_data(data)
-    X = original[FEATURE_ORDER].copy()
-    y = original[TARGET_COL].astype(int).copy()
+    """Create the common stratified split using all 2,000 dataset rows."""
+    evaluation_data = get_verified_original_data(data)
+    X = evaluation_data[FEATURE_ORDER].copy()
+    y = evaluation_data[TARGET_COL].astype(int).copy()
 
     return train_test_split(
         X,
