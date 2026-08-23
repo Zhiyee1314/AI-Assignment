@@ -214,6 +214,7 @@ with st.sidebar:
         ["Predict", "Compare Models", "Prediction History"],
         format_func=lambda p: {
             "Predict": "🩺  Predict",
+            "Batch CSV": "📄 Upload Batch CSV",
             "Compare Models": "📊  Compare Models",
             "Prediction History": "📋  Prediction History",
         }[p]
@@ -321,6 +322,127 @@ if page == "Predict":
             "DiabetesPedigreeFunction": dpf,
             "Age": age,
         })
+
+elif page == "Batch CSV":
+    st.markdown("## 📄 Batch Patient Prediction")
+    st.write(
+        "Upload a CSV containing the eight raw medical-value columns. Every "
+        "patient will be evaluated by every available model."
+    )
+    template = pd.DataFrame(columns=FEATURES)
+    st.download_button(
+        "⬇️ Download empty CSV template",
+        template.to_csv(index=False).encode("utf-8"),
+        file_name="diabetes_patient_template.csv",
+        mime="text/csv",
+    )
+
+    if "batch_uploader_version" not in st.session_state:
+        st.session_state.batch_uploader_version = 0
+
+    uploaded_file = st.file_uploader(
+        "Upload patient CSV",
+        type=["csv"],
+        key=f"batch_csv_upload_{st.session_state.batch_uploader_version}",
+    )
+
+    if uploaded_file is not None:
+        uploaded_bytes = uploaded_file.getvalue()
+        uploaded_hash = hashlib.sha256(uploaded_bytes).hexdigest()
+        if uploaded_hash != st.session_state.get("batch_upload_hash"):
+            st.session_state.batch_upload_bytes = uploaded_bytes
+            st.session_state.batch_upload_name = uploaded_file.name
+            st.session_state.batch_upload_hash = uploaded_hash
+            st.session_state.pop("batch_results", None)
+            st.session_state.pop("batch_result_signature", None)
+
+    saved_upload = st.session_state.get("batch_upload_bytes")
+    current_signature = model_artifact_signature(available_models)
+    result_signature = (
+        st.session_state.get("batch_upload_hash"),
+        current_signature,
+    )
+
+    if saved_upload is not None and (
+        "batch_results" not in st.session_state
+        or st.session_state.get("batch_result_signature") != result_signature
+    ):
+        try:
+            uploaded = pd.read_csv(io.BytesIO(saved_upload))
+            extra = [column for column in uploaded.columns if column not in FEATURES]
+            if extra:
+                st.info("Extra columns ignored: " + ", ".join(extra))
+
+            patients, predictions = predict_all_models(
+                uploaded, available_models, imputer, scaler
+            )
+            duplicate_count = int(patients.duplicated().sum())
+
+            results = patients.copy()
+            results.insert(0, "Patient Row", np.arange(1, len(results) + 1))
+            for label, output in predictions.items():
+                results[f"{label} Prediction"] = np.where(
+                    output["prediction"] == 1, "High Risk", "Low Risk"
+                )
+                probabilities = output["probability"]
+                results[f"{label} Probability"] = (
+                    np.nan if probabilities is None else probabilities
+                )
+
+            st.session_state.batch_results = results
+            st.session_state.batch_result_signature = result_signature
+            st.session_state.batch_duplicate_count = duplicate_count
+        except NotFittedError as error:
+            st.error(
+                "A saved model is not fitted. Run all three separate training "
+                f"scripts and replace the model artifacts. Details: {error}"
+            )
+        except (
+            ValueError,
+            pd.errors.ParserError,
+            pd.errors.EmptyDataError,
+        ) as error:
+            st.error(f"Unable to process CSV: {error}")
+
+    if "batch_results" in st.session_state:
+        results = st.session_state.batch_results
+        upload_name = st.session_state.get(
+            "batch_upload_name", "uploaded patient CSV"
+        )
+        st.success(
+            f"Processed {len(results)} patient(s) from {upload_name}. "
+            "These results remain available when you visit another page."
+        )
+        duplicate_count = st.session_state.get("batch_duplicate_count", 0)
+        if duplicate_count:
+            st.warning(
+                f"{duplicate_count} duplicate patient row(s) were detected "
+                "and preserved to keep the uploaded row order."
+            )
+        st.dataframe(results, width="stretch", hide_index=True)
+
+        download_col, clear_col = st.columns([3, 1])
+        with download_col:
+            st.download_button(
+                "⬇️ Download batch prediction results",
+                results.to_csv(index=False).encode("utf-8"),
+                file_name="diabetes_batch_predictions.csv",
+                mime="text/csv",
+                width="stretch",
+            )
+        with clear_col:
+            if st.button("🗑️ Clear batch", width="stretch"):
+                for key in [
+                    "batch_upload_bytes",
+                    "batch_upload_name",
+                    "batch_upload_hash",
+                    "batch_results",
+                    "batch_result_signature",
+                    "batch_duplicate_count",
+                ]:
+                    st.session_state.pop(key, None)
+                st.session_state.batch_uploader_version += 1
+                st.rerun()
 
 
 # ----------------------------------------------------------------------
