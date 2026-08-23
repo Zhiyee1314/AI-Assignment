@@ -8,21 +8,25 @@ import hashlib
 import io
 from datetime import datetime
 from pathlib import Path
-
+ 
 import joblib
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 import streamlit as st
 from sklearn.exceptions import NotFittedError
 from sklearn.metrics import (
     accuracy_score,
+    auc,
     confusion_matrix,
     f1_score,
     precision_score,
     recall_score,
     roc_auc_score,
+    roc_curve,
 )
-
+ 
 from CSS.styles import inject_global_css
 from scripts.preprocessing import (
     DATA_DIR,
@@ -33,11 +37,11 @@ from scripts.preprocessing import (
     transform_features,
     validate_patient_frame,
 )
-
-
+ 
+ 
 ROOT_DIR = Path(__file__).resolve().parent
 HISTORY_FILE = ROOT_DIR / "prediction_history.csv"
-
+ 
 MODEL_FILES = {
     "ANN": MODELS_DIR / "ann_model.pkl",
     "KNN": MODELS_DIR / "knn_model.pkl",
@@ -45,7 +49,7 @@ MODEL_FILES = {
 }
 IMPUTER_FILE = MODELS_DIR / "imputer.pkl"
 SCALER_FILE = MODELS_DIR / "scaler.pkl"
-
+ 
 MODEL_TITLES = {
     "ANN": "ANN Diabetes Risk Predictor",
     "KNN": "KNN Diabetes Risk Predictor",
@@ -58,35 +62,35 @@ MODEL_SUBTITLES = {
     "KNN": "A tuned nearest-neighbor model using similar training patients.",
     "SVM": "A tuned and probability-calibrated support vector machine.",
 }
-
-
+ 
+ 
 st.set_page_config(
     page_title="Diabetes Risk Predictor",
     page_icon="🩺",
     layout="wide",
 )
-
-
+ 
+ 
 @st.cache_resource
 def load_pickle(path_string, modified_time_ns, file_size):
     """Cache an artifact while invalidating the cache when the file changes."""
     return joblib.load(path_string)
-
-
+ 
+ 
 def load_artifact(path):
     path = Path(path)
     stat = path.stat()
     return load_pickle(str(path), stat.st_mtime_ns, stat.st_size)
-
-
+ 
+ 
 def get_available_models():
     return {
         label: path
         for label, path in MODEL_FILES.items()
         if path.exists()
     }
-
-
+ 
+ 
 def get_positive_probability(model, X):
     """Return class-1 probabilities only when the fitted model supports them."""
     try:
@@ -94,14 +98,14 @@ def get_positive_probability(model, X):
         return np.asarray(values[:, 1], dtype=float)
     except (AttributeError, NotFittedError):
         return None
-
-
+ 
+ 
 def predict_all_models(raw_patients, available_models, imputer, scaler):
     """Validate and predict one or many raw patient rows with every model."""
     validated = validate_patient_frame(raw_patients)
     scaled = transform_features(validated, imputer, scaler)
     predictions = {}
-
+ 
     for label, path in available_models.items():
         model = load_artifact(path)
         predicted = np.asarray(model.predict(scaled), dtype=int)
@@ -110,10 +114,10 @@ def predict_all_models(raw_patients, available_models, imputer, scaler):
             "prediction": predicted,
             "probability": probabilities,
         }
-
+ 
     return validated, predictions
-
-
+ 
+ 
 def render_header(model_choice):
     accent = MODEL_ACCENT[model_choice]
     st.markdown(
@@ -129,19 +133,19 @@ def render_header(model_choice):
         unsafe_allow_html=True,
     )
     return accent
-
-
+ 
+ 
 def render_result_card(model_choice, prediction, probability):
     is_high = int(prediction) == 1
     color = "#E5484D" if is_high else "#22B07D"
     label = "⚠️ High Risk of Diabetes" if is_high else "✅ Low Risk of Diabetes"
-
+ 
     if probability is None or np.isnan(probability):
         st.markdown(
             f"### {label}\n\n{model_choice} does not provide calibrated probability."
         )
         return
-
+ 
     risk_pct = float(probability) * 100
     st.markdown(
         f"""
@@ -158,8 +162,8 @@ def render_result_card(model_choice, prediction, probability):
         """,
         unsafe_allow_html=True,
     )
-
-
+ 
+ 
 def prediction_rows(predictions, row_index=0):
     rows = []
     for label, output in predictions.items():
@@ -172,8 +176,8 @@ def prediction_rows(predictions, row_index=0):
             "Diabetes Probability": probability,
         })
     return rows
-
-
+ 
+ 
 def load_history():
     if HISTORY_FILE.exists():
         try:
@@ -183,8 +187,8 @@ def load_history():
     return pd.DataFrame(
         columns=["timestamp", "model", "probability", "prediction"] + FEATURES
     )
-
-
+ 
+ 
 def save_history_row(row):
     existing = load_history()
     new_row = pd.DataFrame([row])
@@ -197,19 +201,19 @@ def save_history_row(row):
         st.warning(
             "Prediction succeeded, but history could not be saved on this host."
         )
-
-
+ 
+ 
 def compute_current_model_comparison(available_models, imputer, scaler):
     """Evaluate the currently loaded artifacts on one fair unseen test set."""
     data = load_dataset()
     X_train_raw, X_test_raw, y_train, y_test = split_raw_dataset(data)
     X_test = transform_features(X_test_raw, imputer, scaler)
-
+ 
     rows = []
     for label in ["ANN", "KNN", "SVM"]:
         if label not in available_models:
             continue
-
+ 
         model = load_artifact(available_models[label])
         try:
             prediction = np.asarray(model.predict(X_test), dtype=int)
@@ -218,7 +222,7 @@ def compute_current_model_comparison(available_models, imputer, scaler):
                 f"{label} model is not fitted. Run scripts/{label.title()}_Model.py "
                 "and replace the matching file in models/."
             ) from error
-
+ 
         probability = get_positive_probability(model, X_test)
         tn, fp, fn, tp = confusion_matrix(
             y_test, prediction, labels=[0, 1]
@@ -243,13 +247,85 @@ def compute_current_model_comparison(available_models, imputer, scaler):
             "Training Patients": len(y_train),
             "Test Patients": len(y_test),
         })
-
+ 
     if not rows:
         raise FileNotFoundError("No fitted model artifacts are available.")
-
+ 
     return pd.DataFrame(rows).set_index("Model")
-
-
+ 
+ 
+@st.cache_data
+def compute_confusion_matrices(_available_models_tuple, _imputer, _scaler):
+    """Confusion matrix (as a numpy array) for every currently available model,
+    evaluated on the same held-out test set used everywhere else."""
+    available_models = dict(_available_models_tuple)
+ 
+    data = load_dataset()
+    X_train_raw, X_test_raw, y_train, y_test = split_raw_dataset(data)
+    X_test = transform_features(X_test_raw, _imputer, _scaler)
+ 
+    matrices = {}
+    for label, path in available_models.items():
+        model = load_artifact(path)
+        prediction = np.asarray(model.predict(X_test), dtype=int)
+        matrices[label] = confusion_matrix(y_test, prediction, labels=[0, 1])
+ 
+    return matrices
+ 
+ 
+def plot_confusion_matrix_figure(model_label, cm, accent):
+    """Green-yellow styled confusion matrix (rows=Predicted, cols=Actual)."""
+    class_labels = ["No Diabetes", "Diabetes"]
+    cm_t = cm.T
+    col_sums = cm_t.sum(axis=0, keepdims=True)
+    col_sums[col_sums == 0] = 1
+    cm_percent = (cm_t / col_sums) * 100
+ 
+    annot = np.empty_like(cm_t).astype(str)
+    for i in range(cm_t.shape[0]):
+        for j in range(cm_t.shape[1]):
+            annot[i, j] = f"{cm_percent[i, j]:.1f}%\n{cm_t[i, j]}"
+ 
+    acc = np.trace(cm) / cm.sum() if cm.sum() > 0 else 0.0
+ 
+    fig, ax = plt.subplots(figsize=(4.6, 4.2))
+    sns.heatmap(
+        cm_t, annot=annot, fmt='', cmap='YlGn_r', cbar=False,
+        linewidths=1, linecolor='black',
+        xticklabels=class_labels, yticklabels=class_labels,
+        annot_kws={"size": 11}, ax=ax
+    )
+    ax.set_title(f"{model_label} — Accuracy: {acc * 100:.2f}%", fontsize=11, fontweight='bold')
+    ax.set_xlabel("Actual Labels")
+    ax.set_ylabel("Predicted Labels")
+    plt.setp(ax.get_xticklabels(), rotation=0)
+    plt.setp(ax.get_yticklabels(), rotation=0)
+    fig.tight_layout()
+    return fig
+ 
+ 
+@st.cache_data
+def compute_roc_curves(_available_models_tuple, _imputer, _scaler):
+    """ROC curve points + AUC for every model that supports predict_proba."""
+    available_models = dict(_available_models_tuple)
+ 
+    data = load_dataset()
+    X_train_raw, X_test_raw, y_train, y_test = split_raw_dataset(data)
+    X_test = transform_features(X_test_raw, _imputer, _scaler)
+ 
+    curves = {}
+    for label, path in available_models.items():
+        model = load_artifact(path)
+        probability = get_positive_probability(model, X_test)
+        if probability is None:
+            continue
+        fpr, tpr, _ = roc_curve(y_test, probability)
+        roc_auc_value = auc(fpr, tpr)
+        curves[label] = (fpr, tpr, roc_auc_value)
+ 
+    return curves
+ 
+ 
 def model_artifact_signature(available_models):
     """Return a stable signature so persisted batch results refresh after retraining."""
     paths = [IMPUTER_FILE, SCALER_FILE] + list(available_models.values())
@@ -257,8 +333,8 @@ def model_artifact_signature(available_models):
         (str(path), path.stat().st_mtime_ns, path.stat().st_size)
         for path in paths
     )
-
-
+ 
+ 
 def load_ablation_comparison():
     combined = None
     missing = []
@@ -277,8 +353,8 @@ def load_ablation_comparison():
             report, on="Removed Feature", how="outer"
         )
     return combined, missing
-
-
+ 
+ 
 available_models = get_available_models()
 if not available_models:
     st.error("No model .pkl files were found in the models folder.")
@@ -289,10 +365,10 @@ if not IMPUTER_FILE.exists() or not SCALER_FILE.exists():
         "models/scaler.pkl is missing."
     )
     st.stop()
-
+ 
 imputer = load_artifact(IMPUTER_FILE)
 scaler = load_artifact(SCALER_FILE)
-
+ 
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
     model_choice = st.selectbox(
@@ -317,10 +393,10 @@ with st.sidebar:
             "Prediction History": "📋  Prediction History",
         }[value],
     )
-
+ 
 inject_global_css(MODEL_ACCENT[model_choice])
-
-
+ 
+ 
 if page == "Predict":
     render_header(model_choice)
     st.markdown("#### 📝 Patient Information")
@@ -328,7 +404,7 @@ if page == "Predict":
         "Enter normal medical values. Missing medical measurements may be "
         "entered as 0; the backend performs median imputation and 0-1 scaling."
     )
-
+ 
     col1, col2 = st.columns(2)
     with col1:
         pregnancies = st.number_input("Pregnancies", 0, 20, 3, 1)
@@ -342,7 +418,7 @@ if page == "Predict":
             "Diabetes Pedigree Function", 0.0, 3.0, 0.51, 0.01, format="%.2f"
         )
         age = st.number_input("Age", 1, 120, 35, 1)
-
+ 
     if st.button(
         f"🩺 Predict with {model_choice}",
         type="primary",
@@ -358,7 +434,7 @@ if page == "Predict":
             "DiabetesPedigreeFunction": dpf,
             "Age": age,
         }])
-
+ 
         try:
             validated = validate_patient_frame(patient)
             scaled = transform_features(validated, imputer, scaler)
@@ -375,7 +451,7 @@ if page == "Predict":
             render_result_card(
                 model_choice, selected_prediction, selected_probability
             )
-
+ 
             with st.expander("View the 0.00–1.00 values sent to the model"):
                 normalized = pd.DataFrame(
                     scaled, columns=FEATURES, index=validated.index
@@ -385,7 +461,7 @@ if page == "Predict":
                     width="stretch",
                     hide_index=True,
                 )
-
+ 
             save_history_row({
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "model": model_choice,
@@ -407,8 +483,8 @@ if page == "Predict":
             )
         except ValueError as error:
             st.error(str(error))
-
-
+ 
+ 
 elif page == "Batch CSV":
     st.markdown("## 📄 Batch Patient Prediction")
     st.write(
@@ -422,16 +498,16 @@ elif page == "Batch CSV":
         file_name="diabetes_patient_template.csv",
         mime="text/csv",
     )
-
+ 
     if "batch_uploader_version" not in st.session_state:
         st.session_state.batch_uploader_version = 0
-
+ 
     uploaded_file = st.file_uploader(
         "Upload patient CSV",
         type=["csv"],
         key=f"batch_csv_upload_{st.session_state.batch_uploader_version}",
     )
-
+ 
     if uploaded_file is not None:
         uploaded_bytes = uploaded_file.getvalue()
         uploaded_hash = hashlib.sha256(uploaded_bytes).hexdigest()
@@ -441,14 +517,14 @@ elif page == "Batch CSV":
             st.session_state.batch_upload_hash = uploaded_hash
             st.session_state.pop("batch_results", None)
             st.session_state.pop("batch_result_signature", None)
-
+ 
     saved_upload = st.session_state.get("batch_upload_bytes")
     current_signature = model_artifact_signature(available_models)
     result_signature = (
         st.session_state.get("batch_upload_hash"),
         current_signature,
     )
-
+ 
     if saved_upload is not None and (
         "batch_results" not in st.session_state
         or st.session_state.get("batch_result_signature") != result_signature
@@ -458,12 +534,12 @@ elif page == "Batch CSV":
             extra = [column for column in uploaded.columns if column not in FEATURES]
             if extra:
                 st.info("Extra columns ignored: " + ", ".join(extra))
-
+ 
             patients, predictions = predict_all_models(
                 uploaded, available_models, imputer, scaler
             )
             duplicate_count = int(patients.duplicated().sum())
-
+ 
             results = patients.copy()
             results.insert(0, "Patient Row", np.arange(1, len(results) + 1))
             for label, output in predictions.items():
@@ -474,7 +550,7 @@ elif page == "Batch CSV":
                 results[f"{label} Probability"] = (
                     np.nan if probabilities is None else probabilities
                 )
-
+ 
             st.session_state.batch_results = results
             st.session_state.batch_result_signature = result_signature
             st.session_state.batch_duplicate_count = duplicate_count
@@ -489,7 +565,7 @@ elif page == "Batch CSV":
             pd.errors.EmptyDataError,
         ) as error:
             st.error(f"Unable to process CSV: {error}")
-
+ 
     if "batch_results" in st.session_state:
         results = st.session_state.batch_results
         upload_name = st.session_state.get(
@@ -506,7 +582,7 @@ elif page == "Batch CSV":
                 "and preserved to keep the uploaded row order."
             )
         st.dataframe(results, width="stretch", hide_index=True)
-
+ 
         download_col, clear_col = st.columns([3, 1])
         with download_col:
             st.download_button(
@@ -529,82 +605,177 @@ elif page == "Batch CSV":
                     st.session_state.pop(key, None)
                 st.session_state.batch_uploader_version += 1
                 st.rerun()
-
-
+ 
+ 
 elif page == "Compare Models":
     st.markdown("## 📊 Model Comparison")
-
     st.caption(
         "The currently loaded ANN, KNN and SVM artifacts are evaluated "
-        "on the same held-out test patients. Duplicate and "
-        "generated rows are excluded from testing."
+        "on the same held-out test patients, so every section below is "
+        "a fair, apples-to-apples comparison."
     )
-
+ 
+    # ================================================================
+    # SECTION 1: Metrics Table
+    # ================================================================
+    st.markdown("### 1️⃣ Metrics Table")
     try:
         comparison = compute_current_model_comparison(
-            available_models,
-            imputer,
-            scaler,
+            available_models, imputer, scaler,
         )
-
-        metric_columns = [
-            "Accuracy",
-            "Precision",
-            "Recall",
-            "F1 Score",
-            "ROC-AUC",
-        ]
-
-        st.markdown("#### Metrics Table")
+        metric_columns = ["Accuracy", "Precision", "Recall", "F1 Score", "ROC-AUC"]
+ 
         st.dataframe(
             comparison[metric_columns].style.format("{:.4f}"),
             width="stretch",
         )
-
-        st.markdown("#### Metrics Bar Chart")
-        st.bar_chart(
-            comparison[metric_columns]
-        )
-
-        st.markdown("#### Accuracy Only")
-        st.bar_chart(comparison[["Accuracy"]])
-
+ 
         best_model = comparison["Accuracy"].idxmax()
         st.success(
             f"**{best_model}** has the highest accuracy "
             f"({comparison.loc[best_model, 'Accuracy']:.4f})."
         )
-
+ 
         st.download_button(
             "⬇️ Download comparison table as CSV",
             data=comparison.round(4).to_csv().encode("utf-8"),
             file_name="model_comparison.csv",
-            mime="text/csv"
+            mime="text/csv",
+            key="download_metrics_table",
         )
-
     except (FileNotFoundError, NotFittedError) as error:
         st.error(str(error))
-
+        comparison = None
     except (ValueError, KeyError) as error:
-        st.error(
-            f"Unable to calculate the model comparison: {error}"
+        st.error(f"Unable to calculate the model comparison: {error}")
+        comparison = None
+ 
+    st.divider()
+ 
+    # ================================================================
+    # SECTION 2: Metrics Bar Chart
+    # ================================================================
+    st.markdown("### 2️⃣ Metrics Bar Chart")
+    if comparison is not None:
+        st.markdown("**All metrics, grouped by model**")
+        st.bar_chart(comparison[metric_columns])
+ 
+        st.markdown("**Accuracy only**")
+        st.bar_chart(comparison[["Accuracy"]])
+    else:
+        st.info("Metrics table above failed to load, so the bar chart cannot be shown.")
+ 
+    st.divider()
+ 
+    # ================================================================
+    # SECTION 3: Confusion Matrix per model
+    # ================================================================
+    st.markdown("### 3️⃣ Confusion Matrix (per model)")
+    try:
+        matrices = compute_confusion_matrices(
+            tuple(available_models.items()), imputer, scaler
         )
-
-
+        cm_cols = st.columns(len(matrices))
+        for col, (label, cm) in zip(cm_cols, matrices.items()):
+            with col:
+                fig = plot_confusion_matrix_figure(label, cm, MODEL_ACCENT[label])
+                st.pyplot(fig, width="content")
+    except (FileNotFoundError, NotFittedError) as error:
+        st.error(str(error))
+    except (ValueError, KeyError) as error:
+        st.error(f"Unable to compute confusion matrices: {error}")
+ 
+    st.divider()
+ 
+    # ================================================================
+    # SECTION 4: ROC Curve Comparison
+    # ================================================================
+    st.markdown("### 4️⃣ ROC Curve Comparison")
+    try:
+        curves = compute_roc_curves(
+            tuple(available_models.items()), imputer, scaler
+        )
+        if not curves:
+            st.info("None of the loaded models expose predict_proba, so no ROC curve can be drawn.")
+        else:
+            fig, ax = plt.subplots(figsize=(6.5, 6))
+            for label, (fpr, tpr, roc_auc_value) in curves.items():
+                ax.plot(
+                    fpr, tpr, linewidth=2,
+                    color=MODEL_ACCENT.get(label, None),
+                    label=f"{label} (AUC = {roc_auc_value:.4f})"
+                )
+            ax.plot([0, 1], [0, 1], color='gray', linestyle='--', label="Random Guess (AUC = 0.5)")
+            ax.set_title("ROC Curve Comparison", fontsize=13, fontweight='bold')
+            ax.set_xlabel("False Positive Rate")
+            ax.set_ylabel("True Positive Rate")
+            ax.legend(loc="lower right")
+            fig.tight_layout()
+            st.pyplot(fig, width="content")
+    except (FileNotFoundError, NotFittedError) as error:
+        st.error(str(error))
+    except (ValueError, KeyError) as error:
+        st.error(f"Unable to compute ROC curves: {error}")
+ 
+    st.divider()
+ 
+    # ================================================================
+    # SECTION 5: Feature Ablation Comparison
+    # ================================================================
+    st.markdown("### 5️⃣ Feature Ablation Comparison")
+    st.caption(
+        "Each model was retrained after removing one feature at a time. "
+        "A larger negative 'Change' means that feature mattered more to "
+        "that model's accuracy."
+    )
+    ablation_df, missing_ablation = load_ablation_comparison()
+ 
+    if missing_ablation:
+        st.warning(
+            "Ablation results not found for: " + ", ".join(missing_ablation) +
+            ". Run the matching scripts/*_Model.py so it saves "
+            "Data/<model>_ablation.csv."
+        )
+ 
+    if ablation_df is not None:
+        st.dataframe(
+            ablation_df.style.format(
+                {c: "{:.4f}" for c in ablation_df.columns if c != "Removed Feature"}
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+ 
+        change_columns = [c for c in ablation_df.columns if c.endswith("Change")]
+        if change_columns:
+            chart_df = ablation_df.set_index("Removed Feature")[change_columns]
+            st.bar_chart(chart_df)
+ 
+        st.download_button(
+            "⬇️ Download feature ablation comparison as CSV",
+            data=ablation_df.round(4).to_csv(index=False).encode("utf-8"),
+            file_name="feature_ablation_comparison.csv",
+            mime="text/csv",
+            key="download_ablation",
+        )
+    else:
+        st.info("No ablation CSV files were found for any model yet.")
+ 
+ 
 elif page == "Prediction History":
     st.markdown("## 📋 Prediction History")
-
+ 
     history = load_history()
-
+ 
     if history.empty:
         st.info(
             "No successful single-patient predictions have been saved yet. "
             "Go to Predict, select a model and complete a prediction first."
         )
-
+ 
     else:
         col_a, col_b = st.columns([3, 1])
-
+ 
         with col_a:
             model_choices = sorted(
                 history["model"]
@@ -612,16 +783,16 @@ elif page == "Prediction History":
                 .unique()
                 .tolist()
             )
-
+ 
             selected_models = st.multiselect(
                 "Filter by model",
                 options=model_choices,
                 default=model_choices,
             )
-
+ 
         with col_b:
             st.write("")
-
+ 
             if st.button(
                 "🗑️ Clear history",
                 width="stretch",
@@ -637,29 +808,29 @@ elif page == "Prediction History":
                         "prediction",
                     ] + FEATURES
                 )
-
+ 
                 # Delete the locally saved history file.
                 try:
                     HISTORY_FILE.unlink(
                         missing_ok=True
                     )
-
+ 
                 except OSError as error:
                     st.warning(
                         "The session history was cleared, "
                         "but the saved history file could "
                         f"not be deleted: {error}"
                     )
-
+ 
                 # Refresh the page immediately.
                 st.rerun()
-
+ 
         filtered = history[
             history["model"].isin(
                 selected_models
             )
         ]
-
+ 
         st.dataframe(
             filtered.sort_values(
                 "timestamp",
@@ -668,7 +839,7 @@ elif page == "Prediction History":
             width="stretch",
             hide_index=True,
         )
-
+ 
         st.download_button(
             "⬇️ Download prediction history",
             data=filtered.to_csv(
