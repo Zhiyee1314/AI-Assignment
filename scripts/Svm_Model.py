@@ -1,4 +1,8 @@
-"""Train, evaluate, calibrate, ablate, and save the SVM model only."""
+"""Train, tune, calibrate, evaluate, ablate, verify, and save SVM only.
+
+This merged version retains the full RBF/linear search from both supplied SVM
+files and adds leakage-safe probability calibration for Streamlit deployment.
+"""
 
 import json
 import sys
@@ -90,7 +94,7 @@ def main():
 
     print("RUNNING FILE:", __file__)
     print("Dataset rows:", len(data))
-    print("Verified original patients: 768")
+    print("Evaluation patients (all dataset rows):", len(y_train) + len(y_test))
     print("SVM training patients:", len(y_train))
     print("SVM testing patients:", len(y_test))
 
@@ -190,6 +194,12 @@ def main():
     joblib.dump(scaler, MODELS_DIR / "scaler.pkl")
     joblib.dump(svm, MODELS_DIR / "svm_model.pkl")
 
+    saved_model = joblib.load(MODELS_DIR / "svm_model.pkl")
+    saved_prediction = saved_model.predict(X_test[:1])
+    saved_probability = saved_model.predict_proba(X_test[:1])[:, 1]
+    if len(saved_prediction) != 1 or len(saved_probability) != 1:
+        raise RuntimeError("Saved SVM model failed prediction verification.")
+
     pd.DataFrame([{
         "Model": MODEL_NAME,
         "Accuracy": accuracy,
@@ -225,6 +235,7 @@ def main():
     print(" - models/imputer.pkl")
     print(" - models/scaler.pkl")
     print(" - models/svm_model.pkl")
+    print(" - SVM saved-model prediction verification: OK")
     print(" - Data/svm_metrics.csv")
     print(" - Data/svm_ablation.csv")
 
