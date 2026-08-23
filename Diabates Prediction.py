@@ -564,14 +564,23 @@ elif page == "Compare Models":
             comparison[metric_columns]
         )
 
-       
+        st.markdown("#### Accuracy Only")
+        st.bar_chart(comparison_df[["Accuracy"]])
+
+        best_model = comparison_df["Accuracy"].idxmax()
+        st.success(
+            f"**{best_model}** has the highest accuracy "
+            f"({comparison_df.loc[best_model, 'Accuracy']:.4f})."
+        )
 
         st.download_button(
-            "⬇️ Download model comparison",
-            data=comparison.to_csv().encode("utf-8"),
+            "⬇️ Download comparison table as CSV",
+            data=comparison_df.round(4).to_csv().encode("utf-8"),
             file_name="model_comparison.csv",
-            mime="text/csv",
+            mime="text/csv"
         )
+
+       
 
     except (FileNotFoundError, NotFittedError) as error:
         st.error(str(error))
@@ -580,6 +589,8 @@ elif page == "Compare Models":
         st.error(
             f"Unable to calculate the model comparison: {error}"
         )
+
+
 
 elif page == "Prediction History":
     st.markdown("## 📋 Prediction History")
