@@ -1,4 +1,8 @@
-"""Train, evaluate, ablate, and save the ANN model only."""
+"""Train, tune, evaluate, ablate, verify, and save the ANN model only.
+
+This merged version keeps the project's shared, leakage-safe preprocessing and
+combines the layer-size and regularization searches from both supplied files.
+"""
 
 import json
 import sys
@@ -17,7 +21,11 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
+from sklearn.model_selection import (
+    GridSearchCV,
+    StratifiedKFold,
+    TunedThresholdClassifierCV,
+)
 from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 
@@ -85,7 +93,7 @@ def main():
     X_train_clean = replace_invalid_zeros(X_train_raw)
 
     print("Dataset rows:", len(data))
-    print("Verified original patients: 768")
+    print("Evaluation patients (all dataset rows):", len(y_train) + len(y_test))
     print("ANN training patients:", len(y_train))
     print("ANN testing patients:", len(y_test))
 
@@ -109,12 +117,15 @@ def main():
         )),
     ])
 
+    # The older LBFGS branch was evaluated during this merge, but it produced
+    # repeated convergence warnings and scored below the Adam branch. Keep its
+    # useful extra layer sizes/alpha values while using the converged solver.
     param_grid = {
         "model__hidden_layer_sizes": [
-            (16,), (32,), (16, 8), (32, 16), (64, 32)
+            (8,), (16,), (32,), (16, 8), (32, 16), (64, 32)
         ],
         "model__activation": ["relu", "tanh"],
-        "model__alpha": [0.001, 0.01, 0.1, 1.0],
+        "model__alpha": [0.00001, 0.0001, 0.001, 0.01, 0.1, 1.0],
         "model__learning_rate_init": [0.001, 0.01],
     }
 
@@ -123,7 +134,7 @@ def main():
         param_grid=param_grid,
         scoring="accuracy",
         cv=cv,
-        n_jobs=1,
+        n_jobs=-1,
         refit=True,
     )
 
@@ -142,7 +153,7 @@ def main():
     X_train = transform_features(X_train_raw, imputer, scaler)
     X_test = transform_features(X_test_raw, imputer, scaler)
 
-    model = MLPClassifier(
+    base_model = MLPClassifier(
         solver="adam",
         max_iter=2000,
         early_stopping=True,
@@ -151,6 +162,17 @@ def main():
         tol=1e-4,
         random_state=RANDOM_STATE,
         **best_model_params,
+    )
+
+    # Select the classification threshold using training CV only. The held-out
+    # 400-row test set remains untouched until the final evaluation below.
+    model = TunedThresholdClassifierCV(
+        estimator=base_model,
+        scoring="accuracy",
+        thresholds=100,
+        cv=cv,
+        refit=True,
+        n_jobs=-1,
     )
     model.fit(X_train, y_train)
 
@@ -170,6 +192,7 @@ def main():
     }
 
     print("\nBest ANN parameters:", clean_best_params)
+    print(f"Best probability threshold: {model.best_threshold_:.4f}")
     print(f"Best CV accuracy: {grid.best_score_:.4f}")
     print("\n===== ANN (Tuned MLP) — Final Results =====")
     print(f"Accuracy : {accuracy:.4f}")
@@ -208,6 +231,7 @@ def main():
         "FN": int(fn),
         "TP": int(tp),
         "Best Parameters": json.dumps(clean_best_params, default=str),
+        "Best Threshold": model.best_threshold_,
         "Training Patients": len(y_train),
         "Test Patients": len(y_test),
     }]).to_csv(DATA_DIR / "ann_metrics.csv", index=False)
