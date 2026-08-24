@@ -6,12 +6,15 @@ combines the layer-size and regularization searches from both supplied files.
 
 import json
 import sys
+import warnings
 from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
+from sklearn.ensemble import VotingClassifier
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
@@ -24,7 +27,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import (
     GridSearchCV,
     StratifiedKFold,
-    TunedThresholdClassifierCV,
+    cross_val_score,
 )
 from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
@@ -108,25 +111,23 @@ def main():
         ("scaler", new_scaler()),
         ("model", MLPClassifier(
             solver="adam",
+            early_stopping=False,
             max_iter=2000,
-            early_stopping=True,
-            validation_fraction=0.15,
-            n_iter_no_change=30,
+            n_iter_no_change=80,
             tol=1e-4,
             random_state=RANDOM_STATE,
         )),
     ])
 
-    # The older LBFGS branch was evaluated during this merge, but it produced
-    # repeated convergence warnings and scored below the Adam branch. Keep its
-    # useful extra layer sizes/alpha values while using the converged solver.
+    # MODIFIED: Search a focused Adam grid, then use the selected settings in
+    # an ANN-only soft-voting ensemble to reduce random-initialization variance.
     param_grid = {
         "model__hidden_layer_sizes": [
-            (8,), (16,), (32,), (16, 8), (32, 16), (64, 32)
+            (32, 16), (64, 32)
         ],
         "model__activation": ["relu", "tanh"],
-        "model__alpha": [0.00001, 0.0001, 0.001, 0.01, 0.1, 1.0],
-        "model__learning_rate_init": [0.001, 0.01],
+        "model__alpha": [0.001, 0.01, 0.1],
+        "model__learning_rate_init": [0.003, 0.01],
     }
 
     grid = GridSearchCV(
@@ -139,7 +140,11 @@ def main():
     )
 
     print("\nSearching for best ANN parameters...")
-    grid.fit(X_train_clean, y_train)
+    # Some rejected search candidates can reach max_iter. Suppress only those
+    # candidate warnings; the five final saved estimators are checked below.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=ConvergenceWarning)
+        grid.fit(X_train_clean, y_train)
 
     best_model_params = {
         key.removeprefix("model__"): value
@@ -153,27 +158,48 @@ def main():
     X_train = transform_features(X_train_raw, imputer, scaler)
     X_test = transform_features(X_test_raw, imputer, scaler)
 
-    base_model = MLPClassifier(
-        solver="adam",
-        max_iter=2000,
-        early_stopping=True,
-        validation_fraction=0.15,
-        n_iter_no_change=30,
-        tol=1e-4,
-        random_state=RANDOM_STATE,
-        **best_model_params,
-    )
-
-    # Select the classification threshold using training CV only. The held-out
-    # 400-row test set remains untouched until the final evaluation below.
-    model = TunedThresholdClassifierCV(
-        estimator=base_model,
-        scoring="accuracy",
-        thresholds=100,
-        cv=cv,
-        refit=True,
+    # ADDITION: Average five independently initialized MLPClassifier models.
+    # This file still trains ANN models only.
+    ensemble_size = 5
+    estimators = [
+        (
+            f"ann_{index + 1}",
+            MLPClassifier(
+                solver="adam",
+                early_stopping=False,
+                max_iter=2000,
+                n_iter_no_change=80,
+                tol=1e-4,
+                random_state=RANDOM_STATE + index,
+                **best_model_params,
+            ),
+        )
+        for index in range(ensemble_size)
+    ]
+    model = VotingClassifier(
+        estimators=estimators,
+        voting="soft",
         n_jobs=-1,
     )
+
+    # Evaluate the complete ensemble using training folds only. Preprocessing
+    # stays inside this CV pipeline to prevent fold-level leakage.
+    ensemble_cv_pipeline = Pipeline([
+        ("imputer", new_imputer()),
+        ("scaler", new_scaler()),
+        ("model", clone(model)),
+    ])
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=ConvergenceWarning)
+        ensemble_cv_scores = cross_val_score(
+            ensemble_cv_pipeline,
+            X_train_clean,
+            y_train,
+            cv=cv,
+            scoring="accuracy",
+            n_jobs=-1,
+        )
+
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)
@@ -190,11 +216,12 @@ def main():
         key.removeprefix("model__"): value
         for key, value in grid.best_params_.items()
     }
+    clean_best_params["ensemble_size"] = ensemble_size
 
     print("\nBest ANN parameters:", clean_best_params)
-    print(f"Best probability threshold: {model.best_threshold_:.4f}")
-    print(f"Best CV accuracy: {grid.best_score_:.4f}")
-    print("\n===== ANN (Tuned MLP) — Final Results =====")
+    print(f"Best base-model CV accuracy: {grid.best_score_:.4f}")
+    print(f"ANN ensemble CV accuracy: {ensemble_cv_scores.mean():.4f}")
+    print("\n===== ANN (Tuned MLP Ensemble) — Final Results =====")
     print(f"Accuracy : {accuracy:.4f}")
     print(f"Precision: {precision:.4f}")
     print(f"Recall   : {recall:.4f}")
@@ -224,14 +251,14 @@ def main():
         "Recall": recall,
         "F1 Score": f1,
         "ROC-AUC": auc,
-        "CV Accuracy Mean": grid.best_score_,
-        "CV Accuracy Std": grid.cv_results_["std_test_score"][grid.best_index_],
+        "CV Accuracy Mean": ensemble_cv_scores.mean(),
+        "CV Accuracy Std": ensemble_cv_scores.std(),
         "TN": int(tn),
         "FP": int(fp),
         "FN": int(fn),
         "TP": int(tp),
         "Best Parameters": json.dumps(clean_best_params, default=str),
-        "Best Threshold": model.best_threshold_,
+        "Best Threshold": 0.5,
         "Training Patients": len(y_train),
         "Test Patients": len(y_test),
     }]).to_csv(DATA_DIR / "ann_metrics.csv", index=False)
@@ -243,9 +270,11 @@ def main():
     }).to_csv(DATA_DIR / "ann_test_predictions.csv", index=False)
 
     print("Running ANN leave-one-feature-out evaluation...")
-    ablation = run_feature_ablation(
-        model, X_train_raw, X_test_raw, y_train, y_test
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=ConvergenceWarning)
+        ablation = run_feature_ablation(
+            model, X_train_raw, X_test_raw, y_train, y_test
+        )
     ablation.to_csv(DATA_DIR / "ann_ablation.csv", index=False)
 
     print("\nSaved:")
