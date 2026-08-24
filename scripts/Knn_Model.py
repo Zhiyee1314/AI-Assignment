@@ -1,3 +1,9 @@
+"""Train, tune, evaluate, ablate, verify, and save the KNN model only.
+
+This merged version keeps the project's shared, leakage-safe preprocessing and
+combines the complete 1-31 neighbour search from the supplied KNN scripts.
+"""
+
 import json
 import sys
 from pathlib import Path
@@ -37,17 +43,15 @@ from scripts.preprocessing import (  # noqa: E402
     transform_features,
 )
 
-MODEL_NAME = "KNN"
 
-# Define the 4 features you want to use (e.g., FEATURE_ORDER[:4] or explicit column names)
-SELECTED_FEATURES = FEATURE_ORDER[:4]
+MODEL_NAME = "KNN"
 
 
 def run_feature_ablation(base_estimator, X_train, X_test, y_train, y_test):
     """Retrain KNN after removing each feature, one experiment at a time."""
     rows = []
-    for removed in [None] + SELECTED_FEATURES:
-        kept = [f for f in SELECTED_FEATURES if f != removed]
+    for removed in [None] + FEATURE_ORDER:
+        kept = [f for f in FEATURE_ORDER if f != removed]
         train_subset = X_train[kept].copy()
         test_subset = X_test[kept].copy()
         zero_columns = [c for c in kept if c in ZERO_AS_MISSING_COLS]
@@ -81,18 +85,12 @@ def run_feature_ablation(base_estimator, X_train, X_test, y_train, y_test):
 def main():
     data = load_dataset()
     X_train_raw, X_test_raw, y_train, y_test = split_raw_dataset(data)
-
-    # Filter raw datasets to only the 4 selected features
-    X_train_raw = X_train_raw[SELECTED_FEATURES]
-    X_test_raw = X_test_raw[SELECTED_FEATURES]
-
     X_train_clean = replace_invalid_zeros(X_train_raw)
 
     print("Dataset rows:", len(data))
     print("Evaluation patients (all dataset rows):", len(y_train) + len(y_test))
     print("KNN training patients:", len(y_train))
     print("KNN testing patients:", len(y_test))
-    print("Selected Features (4):", SELECTED_FEATURES)
 
     cv = StratifiedKFold(
         n_splits=5,
