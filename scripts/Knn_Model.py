@@ -1,4 +1,8 @@
-"""Train, evaluate, ablate, and save the KNN model only."""
+"""Train, tune, evaluate, ablate, verify, and save the KNN model only.
+
+This merged version keeps the project's shared, leakage-safe preprocessing and
+combines the complete 1-31 neighbour search from the supplied KNN scripts.
+"""
 
 import json
 import sys
@@ -17,7 +21,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_split
+from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import Pipeline
 
@@ -26,41 +30,37 @@ if __package__ in {None, ""}:
 
 from scripts.preprocessing import (  # noqa: E402
     DATA_DIR,
+    FEATURE_ORDER,
     MODELS_DIR,
     RANDOM_STATE,
     ZERO_AS_MISSING_COLS,
+    fit_preprocessors,
     load_dataset,
     new_imputer,
     new_scaler,
+    replace_invalid_zeros,
+    split_raw_dataset,
+    transform_features,
 )
 
+
 MODEL_NAME = "KNN"
-
-# Target feature subset
-SELECTED_FEATURES = ["Glucose", "BMI", "Age", "Pregnancies"]
-
-
-def clean_zeros(df: pd.DataFrame) -> pd.DataFrame:
-    """Replace 0 with NaN only for features that exist in df and treat 0 as missing."""
-    df_clean = df.copy()
-    zero_cols = [c for c in df_clean.columns if c in ZERO_AS_MISSING_COLS]
-    if zero_cols:
-        df_clean[zero_cols] = df_clean[zero_cols].replace(0, np.nan)
-    return df_clean
 
 
 def run_feature_ablation(base_estimator, X_train, X_test, y_train, y_test):
     """Retrain KNN after removing each feature, one experiment at a time."""
     rows = []
-    for removed in [None] + SELECTED_FEATURES:
-        kept = [f for f in SELECTED_FEATURES if f != removed]
-        train_subset = clean_zeros(X_train[kept])
-        test_subset = clean_zeros(X_test[kept])
+    for removed in [None] + FEATURE_ORDER:
+        kept = [f for f in FEATURE_ORDER if f != removed]
+        train_subset = X_train[kept].copy()
+        test_subset = X_test[kept].copy()
+        zero_columns = [c for c in kept if c in ZERO_AS_MISSING_COLS]
+        train_subset[zero_columns] = train_subset[zero_columns].replace(0, np.nan)
+        test_subset[zero_columns] = test_subset[zero_columns].replace(0, np.nan)
 
         imputer = new_imputer()
         train_imputed = imputer.fit_transform(train_subset)
         test_imputed = imputer.transform(test_subset)
-
         scaler = new_scaler()
         train_scaled = scaler.fit_transform(train_imputed)
         test_scaled = scaler.transform(test_imputed)
@@ -84,24 +84,13 @@ def run_feature_ablation(base_estimator, X_train, X_test, y_train, y_test):
 
 def main():
     data = load_dataset()
+    X_train_raw, X_test_raw, y_train, y_test = split_raw_dataset(data)
+    X_train_clean = replace_invalid_zeros(X_train_raw)
 
-    # Extract 4 features and target variable
-    X = data[SELECTED_FEATURES]
-    y = data["Outcome"]  # Update if your target column name is different
-
-    # Train/test split directly
-    X_train_raw, X_test_raw, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y
-    )
-
-    # Clean zero values safely
-    X_train_clean = clean_zeros(X_train_raw)
-    X_test_clean = clean_zeros(X_test_raw)
-
-    print("Total rows:", len(data))
+    print("Dataset rows:", len(data))
+    print("Evaluation patients (all dataset rows):", len(y_train) + len(y_test))
     print("KNN training patients:", len(y_train))
     print("KNN testing patients:", len(y_test))
-    print("Selected Features:", SELECTED_FEATURES)
 
     cv = StratifiedKFold(
         n_splits=5,
@@ -114,7 +103,7 @@ def main():
         ("model", KNeighborsClassifier()),
     ])
     param_grid = {
-        "model__n_neighbors": [3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 25, 31],
+        "model__n_neighbors": list(range(1, 32)),
         "model__weights": ["uniform", "distance"],
         "model__metric": ["euclidean", "manhattan"],
     }
@@ -135,15 +124,9 @@ def main():
         if key.startswith("model__")
     }
 
-    # Fit preprocessors on the clean 4-feature dataset
-    imputer = new_imputer()
-    scaler = new_scaler()
-
-    X_train_imp = imputer.fit_transform(X_train_clean)
-    X_test_imp = imputer.transform(X_test_clean)
-
-    X_train = scaler.fit_transform(X_train_imp)
-    X_test = scaler.transform(X_test_imp)
+    imputer, scaler = fit_preprocessors(X_train_raw)
+    X_train = transform_features(X_train_raw, imputer, scaler)
+    X_test = transform_features(X_test_raw, imputer, scaler)
 
     knn = KNeighborsClassifier(**best_model_params)
     knn.fit(X_train, y_train)
@@ -171,11 +154,15 @@ def main():
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    # NOTE: saved as knn_imputer.pkl / knn_scaler.pkl (NOT imputer.pkl /
-    # scaler.pkl) so the team's shared 8-feature imputer.pkl / scaler.pkl
-    # used by ANN and SVM are never overwritten or broken by this script.
+    joblib.dump(imputer, MODELS_DIR / "imputer.pkl")
+    joblib.dump(scaler, MODELS_DIR / "scaler.pkl")
     joblib.dump(knn, MODELS_DIR / "knn_model.pkl")
+
+    saved_model = joblib.load(MODELS_DIR / "knn_model.pkl")
+    saved_prediction = saved_model.predict(X_test[:1])
+    saved_probability = saved_model.predict_proba(X_test[:1])[:, 1]
+    if len(saved_prediction) != 1 or len(saved_probability) != 1:
+        raise RuntimeError("Saved KNN model failed prediction verification.")
 
     pd.DataFrame([{
         "Model": MODEL_NAME,
@@ -208,10 +195,12 @@ def main():
     ablation.to_csv(DATA_DIR / "knn_ablation.csv", index=False)
 
     print("\nSaved:")
+    print(" - models/imputer.pkl")
+    print(" - models/scaler.pkl")
     print(" - models/knn_model.pkl")
+    print(" - KNN saved-model prediction verification: OK")
     print(" - Data/knn_metrics.csv")
     print(" - Data/knn_ablation.csv")
-    print(" - Data/knn_test_predictions.csv")
 
 
 if __name__ == "__main__":
