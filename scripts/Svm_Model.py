@@ -1,7 +1,5 @@
-"""Train, tune, calibrate, evaluate, ablate, verify, and save SVM only.
-
-This merged version retains the full RBF/linear search from both supplied SVM
-files and adds leakage-safe probability calibration for Streamlit deployment.
+"""
+Train, evaluate, ablate, and save the SVM model only.
 """
 
 import json
@@ -12,7 +10,6 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
-from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
@@ -22,12 +19,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import (
-    GridSearchCV,
-    StratifiedKFold,
-    TunedThresholdClassifierCV,
-)
-from sklearn.pipeline import Pipeline
+from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.svm import SVC
 
 if __package__ in {None, ""}:
@@ -39,21 +31,18 @@ from scripts.preprocessing import (  # noqa: E402
     MODELS_DIR,
     RANDOM_STATE,
     ZERO_AS_MISSING_COLS,
-    fit_preprocessors,
     load_dataset,
     new_imputer,
     new_scaler,
-    replace_invalid_zeros,
     split_raw_dataset,
     transform_features,
 )
-
 
 MODEL_NAME = "SVM"
 
 
 def run_feature_ablation(base_estimator, X_train, X_test, y_train, y_test):
-    """Retrain calibrated SVM after removing each feature."""
+    """Retrain SVM after removing each feature, one experiment at a time."""
     rows = []
     for removed in [None] + FEATURE_ORDER:
         kept = [f for f in FEATURE_ORDER if f != removed]
@@ -90,84 +79,67 @@ def run_feature_ablation(base_estimator, X_train, X_test, y_train, y_test):
 def main():
     data = load_dataset()
     X_train_raw, X_test_raw, y_train, y_test = split_raw_dataset(data)
-    X_train_clean = replace_invalid_zeros(X_train_raw)
 
-    print("RUNNING FILE:", __file__)
     print("Dataset rows:", len(data))
-    print("Evaluation patients (all dataset rows):", len(y_train) + len(y_test))
+    print("Selected features:", FEATURE_ORDER)
     print("SVM training patients:", len(y_train))
     print("SVM testing patients:", len(y_test))
 
-    cv = StratifiedKFold(
-        n_splits=5,
-        shuffle=True,
-        random_state=RANDOM_STATE,
-    )
-    search_pipeline = Pipeline([
-        ("imputer", new_imputer()),
-        ("scaler", new_scaler()),
-        ("model", SVC(random_state=RANDOM_STATE)),
-    ])
+    # ---------------------------------------------------------------
+    # Load the SHARED imputer/scaler already fitted by Ann_Model.py.
+    # Do NOT call fit() or fit_transform() on them here.
+    # ---------------------------------------------------------------
+    imputer_path = MODELS_DIR / "imputer.pkl"
+    scaler_path = MODELS_DIR / "scaler.pkl"
+    if not imputer_path.exists() or not scaler_path.exists():
+        raise FileNotFoundError(
+            "models/imputer.pkl and models/scaler.pkl were not found. "
+            "Run Ann_Model.py first -- it fits and saves the shared "
+            "4-feature preprocessors that this script reuses."
+        )
+    imputer = joblib.load(imputer_path)
+    scaler = joblib.load(scaler_path)
+
+    X_train = transform_features(X_train_raw, imputer, scaler)
+    X_test = transform_features(X_test_raw, imputer, scaler)
+
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
+
     param_grid = [
+        # RBF kernel
         {
-            "model__kernel": ["rbf"],
-            "model__C": [0.05, 0.1, 0.3, 0.5, 1, 2, 3, 5, 10, 30, 100],
-            "model__gamma": [
-                "scale", "auto", 0.001, 0.003, 0.005,
-                0.01, 0.03, 0.05, 0.1, 0.3,
-            ],
-            "model__class_weight": [None, "balanced"],
+            "kernel": ["rbf"],
+            "C": [0.05, 0.1, 0.3, 0.5, 1, 2, 3, 5, 10, 30, 100],
+            "gamma": ["scale", "auto", 0.001, 0.003, 0.005, 0.01, 0.03, 0.05, 0.1, 0.3],
+            "class_weight": [None, "balanced"],
         },
+        # Linear kernel
         {
-            "model__kernel": ["linear"],
-            "model__C": [0.001, 0.003, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1, 3, 10],
-            "model__class_weight": [None, "balanced"],
+            "kernel": ["linear"],
+            "C": [0.001, 0.003, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1, 3, 10],
+            "class_weight": [None, "balanced"],
         },
     ]
+
     grid = GridSearchCV(
-        estimator=search_pipeline,
+        estimator=SVC(probability=True, random_state=RANDOM_STATE),
         param_grid=param_grid,
         scoring="accuracy",
         cv=cv,
-        n_jobs=1,
-        refit=True,
+        n_jobs=-1,
         verbose=1,
     )
 
     print("\nSearching for best SVM parameters...")
-    grid.fit(X_train_clean, y_train)
-    best_model_params = {
-        key.removeprefix("model__"): value
-        for key, value in grid.best_params_.items()
-        if key.startswith("model__")
-    }
+    grid.fit(X_train, y_train)
+    svm = grid.best_estimator_
 
-    imputer, scaler = fit_preprocessors(X_train_raw)
-    X_train = transform_features(X_train_raw, imputer, scaler)
-    X_test = transform_features(X_test_raw, imputer, scaler)
-
-    base_svm = SVC(random_state=RANDOM_STATE, **best_model_params)
-    calibrated_svm = CalibratedClassifierCV(
-        estimator=base_svm,
-        method="sigmoid",
-        cv=cv,
-        ensemble=False,
-        n_jobs=1,
-    )
-    # Select the decision threshold using training cross-validation only.
-    # The held-out test patients remain untouched until final evaluation.
-    svm = TunedThresholdClassifierCV(
-        estimator=calibrated_svm,
-        scoring="accuracy",
-        thresholds=100,
-        cv=cv,
-        refit=True,
-        n_jobs=1,
-    )
-    svm.fit(X_train, y_train)
+    print("\nBest SVM parameters:", grid.best_params_)
+    print(f"Best CV accuracy: {grid.best_score_:.4f}")
 
     y_pred = svm.predict(X_test)
     y_prob = svm.predict_proba(X_test)[:, 1]
+
     accuracy = accuracy_score(y_test, y_pred)
     precision = precision_score(y_test, y_pred, zero_division=0)
     recall = recall_score(y_test, y_pred, zero_division=0)
@@ -176,10 +148,7 @@ def main():
     cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
     tn, fp, fn, tp = cm.ravel()
 
-    print("\nBest SVM parameters:", best_model_params)
-    print(f"Best probability threshold: {svm.best_threshold_:.4f}")
-    print(f"Best CV accuracy: {grid.best_score_:.4f}")
-    print("\n===== SVM (Tuned and Calibrated) — Final Results =====")
+    print("\n===== SVM (Tuned SVC) — Final Results =====")
     print(f"Accuracy : {accuracy:.4f}")
     print(f"Precision: {precision:.4f}")
     print(f"Recall   : {recall:.4f}")
@@ -190,15 +159,8 @@ def main():
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    joblib.dump(imputer, MODELS_DIR / "imputer.pkl")
-    joblib.dump(scaler, MODELS_DIR / "scaler.pkl")
-    joblib.dump(svm, MODELS_DIR / "svm_model.pkl")
 
-    saved_model = joblib.load(MODELS_DIR / "svm_model.pkl")
-    saved_prediction = saved_model.predict(X_test[:1])
-    saved_probability = saved_model.predict_proba(X_test[:1])[:, 1]
-    if len(saved_prediction) != 1 or len(saved_probability) != 1:
-        raise RuntimeError("Saved SVM model failed prediction verification.")
+    joblib.dump(svm, MODELS_DIR / "svm_model.pkl")
 
     pd.DataFrame([{
         "Model": MODEL_NAME,
@@ -213,8 +175,7 @@ def main():
         "FP": int(fp),
         "FN": int(fn),
         "TP": int(tp),
-        "Best Parameters": json.dumps(best_model_params, default=str),
-        "Best Threshold": svm.best_threshold_,
+        "Best Parameters": json.dumps(grid.best_params_, default=str),
         "Training Patients": len(y_train),
         "Test Patients": len(y_test),
     }]).to_csv(DATA_DIR / "svm_metrics.csv", index=False)
@@ -232,12 +193,11 @@ def main():
     ablation.to_csv(DATA_DIR / "svm_ablation.csv", index=False)
 
     print("\nSaved:")
-    print(" - models/imputer.pkl")
-    print(" - models/scaler.pkl")
     print(" - models/svm_model.pkl")
-    print(" - SVM saved-model prediction verification: OK")
     print(" - Data/svm_metrics.csv")
     print(" - Data/svm_ablation.csv")
+    print(" - Data/svm_test_predictions.csv")
+    print("\n(models/imputer.pkl and models/scaler.pkl were reused, not overwritten)")
 
 
 if __name__ == "__main__":
