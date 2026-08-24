@@ -30,8 +30,10 @@ Requirements:
 Run:
   python team_feature_importance.py
 
-Required files in the same folder:
-  diabetes.csv, imputer.pkl, scaler.pkl
+Required project files:
+  Data/diabetes.csv
+  models/imputer.pkl
+  models/scaler.pkl
 
 Output:
   - Prints an importance table per model
@@ -49,20 +51,22 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.inspection import permutation_importance
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-RAW_PATH = ROOT_DIR / "Data" / "diabetes.csv"
+DATA_DIR = ROOT_DIR / "Data"
+MODELS_DIR = ROOT_DIR / "models"
+RAW_PATH = DATA_DIR / "diabetes.csv"
+IMPUTER_PATH = MODELS_DIR / "imputer.pkl"
+SCALER_PATH = MODELS_DIR / "scaler.pkl"
 TARGET_COL = "Outcome"
 
-if not RAW_PATH.exists():
-    raise FileNotFoundError(f"Dataset not found: {RAW_PATH}")
 RANDOM_STATE = 42
 
+# These must match the features used by the currently saved preprocessors.
 FEATURE_ORDER = [
-    "Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
-    "Insulin", "BMI", "DiabetesPedigreeFunction", "Age"
+    "Pregnancies", "Glucose", "BMI", "Age"
 ]
 ZERO_AS_MISSING_COLS = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
 
-OUTPUT_GRAPH = "team_feature_importance.png"
+OUTPUT_GRAPH = DATA_DIR / "team_feature_importance.png"
 N_REPEATS = 30  # how many times each feature is shuffled, for a stable average
 
 
@@ -70,9 +74,17 @@ def main():
     # ---------------------------------------------------------------
     # 1. Load raw data + reuse the SAME shared imputer/scaler
     # ---------------------------------------------------------------
+    required_files = [RAW_PATH, IMPUTER_PATH, SCALER_PATH]
+    missing_files = [path for path in required_files if not path.exists()]
+    if missing_files:
+        raise FileNotFoundError(
+            "Required project files were not found:\n"
+            + "\n".join(f" - {path}" for path in missing_files)
+        )
+
     raw = pd.read_csv(RAW_PATH)
-    imputer = joblib.load("imputer.pkl")
-    scaler = joblib.load("scaler.pkl")
+    imputer = joblib.load(IMPUTER_PATH)
+    scaler = joblib.load(SCALER_PATH)
 
     clean = raw.copy()
     for c in ZERO_AS_MISSING_COLS:
@@ -81,8 +93,12 @@ def main():
     X = clean[FEATURE_ORDER]
     y = clean[TARGET_COL]
 
-    X_imputed = pd.DataFrame(imputer.transform(X), columns=FEATURE_ORDER)
-    X_scaled = pd.DataFrame(scaler.transform(X_imputed), columns=FEATURE_ORDER)
+    X_imputed = imputer.transform(X)
+    X_scaled = pd.DataFrame(
+        scaler.transform(X_imputed),
+        columns=FEATURE_ORDER,
+        index=X.index,
+    )
 
     X_train, X_test, y_train, y_test = train_test_split(
         X_scaled, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y
@@ -153,6 +169,7 @@ def main():
     ax.legend()
     ax.grid(alpha=0.3, axis='y')
     fig.tight_layout()
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     fig.savefig(OUTPUT_GRAPH, dpi=200)
     plt.close()
 
