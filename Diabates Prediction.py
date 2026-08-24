@@ -585,44 +585,65 @@ elif page == "Compare Models":
     st.divider()
 
     # ================================================================
-    # SECTION 2: Accuracy
+    # SECTION 2: Grouped Metrics Comparison Chart (0-100%)
     # ================================================================
-    st.markdown("### 2️⃣ Accuracy")
+    st.markdown("### 2️⃣ Performance Metrics Comparison")
     if comparison is not None:
-        st.bar_chart(comparison[["Accuracy"]])
-    else:
-        st.info("Metrics table above failed to load, so this chart cannot be shown.")
+        import plotly.graph_objects as go
 
-    st.divider()
+        # Multiply values by 100 for percentage scale (0-100)
+        chart_data = comparison[metric_columns] * 100
 
-    # ================================================================
-    # SECTION 3: Precision
-    # ================================================================
-    st.markdown("### 3️⃣ Precision")
-    if comparison is not None:
-        st.bar_chart(comparison[["Precision"]])
-    else:
-        st.info("Metrics table above failed to load, so this chart cannot be shown.")
+        # Colors matching the target image (Blue, Green, Orange, Yellow, Purple)
+        color_map = {
+            "Accuracy": "#5B9BD5",
+            "Precision": "#70AD47",
+            "Recall": "#ED7D31",
+            "F1 Score": "#FFC000",
+            "ROC-AUC": "#B4A7D6",
+        }
 
-    st.divider()
+        fig = go.Figure()
 
-    # ================================================================
-    # SECTION 4: Recall
-    # ================================================================
-    st.markdown("### 4️⃣ Recall")
-    if comparison is not None:
-        st.bar_chart(comparison[["Recall"]])
-    else:
-        st.info("Metrics table above failed to load, so this chart cannot be shown.")
+        # Add a bar for each metric
+        for metric in metric_columns:
+            fig.add_trace(
+                go.Bar(
+                    x=chart_data.index,
+                    y=chart_data[metric],
+                    name=metric.replace("F1 Score", "F1-score"),
+                    marker_color=color_map[metric],
+                )
+            )
 
-    st.divider()
+        fig.update_layout(
+            barmode="group",
+            yaxis=dict(
+                range=[0, 100],
+                dtick=25,
+                showgrid=True,
+                gridcolor="#EBEBEB",
+                gridwidth=1,
+                zeroline=False,
+            ),
+            xaxis=dict(
+                showgrid=False,
+            ),
+            legend=dict(
+                orientation="h",
+                yanchor="top",
+                y=-0.15,
+                xanchor="center",
+                x=0.5,
+                font=dict(size=13),
+            ),
+            margin=dict(l=20, r=20, t=20, b=80),
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            height=450,
+        )
 
-    # ================================================================
-    # SECTION 5: F1 Score
-    # ================================================================
-    st.markdown("### 5️⃣ F1 Score")
-    if comparison is not None:
-        st.bar_chart(comparison[["F1 Score"]])
+        st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Metrics table above failed to load, so this chart cannot be shown.")
 
