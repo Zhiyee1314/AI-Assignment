@@ -1,0 +1,2 @@
+Model,Accuracy,Precision,Recall,F1 Score,ROC-AUC,CV Accuracy Mean,CV Accuracy Std,TN,FP,FN,TP,Best Parameters,Training Patients,Test Patients
+KNN,0.865,0.8161764705882353,0.7928571428571428,0.8043478260869565,0.9238736263736264,0.880625,0.021955210087812874,235,25,29,111,"{""metric"": ""minkowski"", ""metric_params"": {""w"": [0.5, 1.0, 0.5, 1.0]}, ""n_neighbors"": 6, ""p"": 2, ""weights"": ""distance""}",1600,400
