@@ -5,6 +5,7 @@ combines the complete 1-31 neighbour search from the supplied KNN scripts.
 """
 
 import json
+from itertools import product
 import sys
 from pathlib import Path
 
@@ -66,6 +67,22 @@ def run_feature_ablation(base_estimator, X_train, X_test, y_train, y_test):
         test_scaled = scaler.transform(test_imputed)
 
         candidate = clone(base_estimator)
+
+        # ADDITION: The final KNN can contain one distance weight per input
+        # feature. During ablation, remove the corresponding weight together
+        # with the feature so the reduced model receives matching dimensions.
+        metric_params = candidate.get_params().get("metric_params")
+        if removed is not None and metric_params and "w" in metric_params:
+            full_weights = list(metric_params["w"])
+            kept_indices = [
+                index
+                for index, feature in enumerate(FEATURE_ORDER)
+                if feature != removed
+            ]
+            candidate.set_params(metric_params={
+                "w": [full_weights[index] for index in kept_indices]
+            })
+
         candidate.fit(train_scaled, y_train)
         prediction = candidate.predict(test_scaled)
         rows.append({
@@ -102,17 +119,40 @@ def main():
         ("scaler", new_scaler()),
         ("model", KNeighborsClassifier()),
     ])
+    # ADDITION: Tune the relative contribution of the four selected features
+    # inside the KNN distance calculation. The combinations are evaluated by
+    # training-only cross-validation; the held-out test patients are not used
+    # to choose these values.
+    expected_features = ["Pregnancies", "Glucose", "BMI", "Age"]
+    if FEATURE_ORDER != expected_features:
+        raise ValueError(
+            "This feature-weighted KNN search expects FEATURE_ORDER to be "
+            f"{expected_features}, but found {FEATURE_ORDER}."
+        )
+
+    feature_weight_grid = [
+        {"w": list(weights)}
+        for weights in product(
+            [0.5, 1.0],  # Pregnancies
+            [1.0, 2.0],  # Glucose
+            [0.5, 1.0],  # BMI
+            [1.0, 1.5],  # Age
+        )
+    ]
+
     param_grid = {
-        "model__n_neighbors": list(range(1, 32)),
+        "model__n_neighbors": list(range(2, 16)),
         "model__weights": ["uniform", "distance"],
-        "model__metric": ["euclidean", "manhattan"],
+        "model__metric": ["minkowski"],
+        "model__p": [1, 2],
+        "model__metric_params": feature_weight_grid,
     }
     grid = GridSearchCV(
         estimator=search_pipeline,
         param_grid=param_grid,
         cv=cv,
         scoring="accuracy",
-        n_jobs=1,
+        n_jobs=-1,
         refit=True,
     )
 
