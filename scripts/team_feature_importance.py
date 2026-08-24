@@ -48,7 +48,11 @@ from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
 from sklearn.inspection import permutation_importance
 
-RAW_PATH = "diabetes.csv"
+ROOT_DIR = Path(__file__).resolve().parents[1]
+RAW_PATH = ROOT_DIR / "Data" / "diabetes.csv"
+
+if not RAW_PATH.exists():
+    raise FileNotFoundError(f"Dataset not found: {RAW_PATH}")
 TARGET_COL = "Outcome"
 RANDOM_STATE = 42
 
