@@ -1,0 +1,2 @@
+Model,Accuracy,Precision,Recall,F1 Score,ROC-AUC,CV Accuracy Mean,CV Accuracy Std,TN,FP,FN,TP,Best Parameters,Best Threshold,Training Patients,Test Patients
+ANN,0.845,0.8095238095238095,0.7285714285714285,0.7669172932330827,0.9135164835164835,0.85125,0.019324531042175384,236,24,38,102,"{""activation"": ""relu"", ""alpha"": 0.001, ""hidden_layer_sizes"": [64, 32], ""learning_rate_init"": 0.01, ""ensemble_size"": 5}",0.5,1600,400
