@@ -361,10 +361,12 @@ requirements.txt
 
 ## Main technologies
 
-- Python
-- Streamlit
-- pandas and NumPy
-- scikit-learn
-- Matplotlib
-- joblib
+-nltk
+-joblib
+-streamlit
+-scikit-learn
+-pandas
+-numpy
+-tabulate
+-seaborn
 
