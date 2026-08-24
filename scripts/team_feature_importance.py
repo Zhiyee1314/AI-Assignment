@@ -37,7 +37,7 @@ Output:
   - Prints an importance table per model
   - Saves 'team_feature_importance.png' (grouped bar chart)
 """
-
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import joblib
@@ -50,10 +50,10 @@ from sklearn.inspection import permutation_importance
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 RAW_PATH = ROOT_DIR / "Data" / "diabetes.csv"
+TARGET_COL = "Outcome"
 
 if not RAW_PATH.exists():
     raise FileNotFoundError(f"Dataset not found: {RAW_PATH}")
-TARGET_COL = "Outcome"
 RANDOM_STATE = 42
 
 FEATURE_ORDER = [
