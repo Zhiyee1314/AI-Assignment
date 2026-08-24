@@ -163,6 +163,8 @@ AI/
     ├── roc_curve_knn.py
     ├── roc_curve_svm.py
     ├── confusion_matrix_svm.py
+    ├── confusion_matrix_ann.py
+    ├── confusion_matrix_knn.py
     └── team_feature_importance.py
 ```
 
@@ -175,15 +177,10 @@ artifacts remain compatible.
 From the project root in Windows Command Prompt:
 
 ```bat
-cd /d C:\Users\JooYee\Downloads\AI
+cd /d C:\Users\JooYee\Downloads\AI-Assignment
 py -m pip install --upgrade pip
 py -m pip install -r requirements.txt
 ```
-
-## Train the models
-
-The training code remains separated by team member. No combined
-`train_all_models.py` file is used.
 
 Run the scripts from the project root in this order:
 
@@ -210,7 +207,7 @@ Each script:
 ## Run the application
 
 ```bat
-cd /d C:\Users\JooYee\Downloads\AI
+cd /d C:\Users\JooYee\Downloads\AI-Assignment
 py -m streamlit run "Diabates Prediction.py"
 ```
 
@@ -264,6 +261,8 @@ Do not run a Streamlit page using only `py scripts\...`; doing so produces
 
 ```bat
 py -m streamlit run scripts\confusion_matrix_svm.py
+py -m streamlit run scripts\confusion_matrix_ann.py
+py -m streamlit run scripts\confusion_matrix_knn.py
 ```
 
 Run `py scripts\Svm_Model.py` first if
@@ -368,14 +367,4 @@ requirements.txt
 - scikit-learn
 - Matplotlib
 - joblib
-
-## References
-
-- Smith, J. W., Everhart, J. E., Dickson, W. C., Knowler, W. C., and
-  Johannes, R. S. (1988). *Using the ADAP learning algorithm to forecast the
-  onset of diabetes mellitus*. Proceedings of the Annual Symposium on Computer
-  Application in Medical Care, 261–265.
-  https://pmc.ncbi.nlm.nih.gov/articles/PMC2245318/
-- Scikit-learn documentation: https://scikit-learn.org/stable/
-- Streamlit documentation: https://docs.streamlit.io/
 
