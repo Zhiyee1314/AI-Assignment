@@ -3,6 +3,7 @@ Train, evaluate, ablate, and save the SVM model only.
 """
 
 import json
+from itertools import product
 import sys
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
+from sklearn.pipeline import Pipeline
 from sklearn.svm import SVC
 
 if __package__ in {None, ""}:
@@ -37,6 +39,7 @@ from scripts.preprocessing import (  # noqa: E402
     split_raw_dataset,
     transform_features,
 )
+from scripts.model_transformers import FeatureWeightTransformer  # noqa: E402
 
 MODEL_NAME = "SVM"
 
@@ -60,6 +63,23 @@ def run_feature_ablation(base_estimator, X_train, X_test, y_train, y_test):
         test_scaled = scaler.transform(test_imputed)
 
         candidate = clone(base_estimator)
+
+        # ADDITION: remove the corresponding SVM feature weight during each
+        # three-feature ablation experiment.
+        feature_weights = candidate.get_params().get(
+            "feature_weight__weights"
+        )
+        if removed is not None and feature_weights is not None:
+            full_weights = list(feature_weights)
+            kept_indices = [
+                index
+                for index, feature in enumerate(FEATURE_ORDER)
+                if feature != removed
+            ]
+            candidate.set_params(feature_weight__weights=tuple(
+                full_weights[index] for index in kept_indices
+            ))
+
         candidate.fit(train_scaled, y_train)
         prediction = candidate.predict(test_scaled)
         rows.append({
@@ -105,24 +125,48 @@ def main():
 
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
 
+    # ADDITION: Tune model-specific feature weights using training folds only.
+    # The Streamlit input and shared imputer/scaler remain unchanged.
+    expected_features = ["Pregnancies", "Glucose", "BMI", "Age"]
+    if FEATURE_ORDER != expected_features:
+        raise ValueError(
+            "This feature-weighted SVM search expects FEATURE_ORDER to be "
+            f"{expected_features}, but found {FEATURE_ORDER}."
+        )
+
+    feature_weight_grid = list(product(
+        [0.5, 1.0],  # Pregnancies
+        [1.0, 2.0],  # Glucose
+        [0.5, 1.0],  # BMI
+        [1.0, 1.5],  # Age
+    ))
+
     param_grid = [
         # RBF kernel
         {
-            "kernel": ["rbf"],
-            "C": [0.05, 0.1, 0.3, 0.5, 1, 2, 3, 5, 10, 30, 100],
-            "gamma": ["scale", "auto", 0.001, 0.003, 0.005, 0.01, 0.03, 0.05, 0.1, 0.3],
-            "class_weight": [None, "balanced"],
+            "feature_weight__weights": feature_weight_grid,
+            "model__kernel": ["rbf"],
+            "model__C": [30, 100, 300],
+            "model__gamma": ["scale", 10, 30, 100],
+            "model__class_weight": [None, "balanced"],
         },
         # Linear kernel
         {
-            "kernel": ["linear"],
-            "C": [0.001, 0.003, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1, 3, 10],
-            "class_weight": [None, "balanced"],
+            "feature_weight__weights": feature_weight_grid,
+            "model__kernel": ["linear"],
+            "model__C": [10, 30, 100],
+            "model__class_weight": [None, "balanced"],
         },
     ]
 
     grid = GridSearchCV(
-        estimator=SVC(probability=True, random_state=RANDOM_STATE),
+        estimator=Pipeline([
+            ("feature_weight", FeatureWeightTransformer()),
+            ("model", SVC(
+                probability=True,
+                random_state=RANDOM_STATE,
+            )),
+        ]),
         param_grid=param_grid,
         scoring="accuracy",
         cv=cv,
