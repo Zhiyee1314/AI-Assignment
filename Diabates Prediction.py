@@ -3,7 +3,6 @@
 This file never retrains a model. It accepts raw medical values, validates
 them, applies the saved imputer and 0-1 scaler, and loads existing .pkl files.
 """
-
 import hashlib
 import io
 from datetime import datetime
@@ -58,6 +57,17 @@ MODEL_SUBTITLES = {
     "KNN": "A tuned nearest-neighbor model using similar training patients.",
     "SVM": "A tuned and probability-calibrated support vector machine.",
 }
+
+# ---------------------------------------------------------------
+# MODIFIED: input widget config for the 4 selected features only.
+# (label, min, max, default, step, help)
+# ---------------------------------------------------------------
+INPUT_FIELDS = [
+    ("Pregnancies", "Pregnancies", 0, 20, 3, 1, "Number of times pregnant."),
+    ("Glucose", "Glucose", 0, 300, 162, 1, "Plasma glucose concentration (mg/dL)."),
+    ("BMI", "BMI", 0.0, 70.0, 30.0, 0.1, "Body Mass Index (weight in kg / height in m^2)."),
+    ("Age", "Age", 1, 120, 35, 1, "Age in years."),
+]
 
 
 st.set_page_config(
@@ -329,19 +339,20 @@ if page == "Predict":
         "entered as 0; the backend performs median imputation and 0-1 scaling."
     )
 
+    # -----------------------------------------------------------
+    # MODIFIED: single shared 4-input form (Pregnancies, Glucose,
+    # BMI, Age) since every model now uses the same 4 features.
+    # -----------------------------------------------------------
     col1, col2 = st.columns(2)
-    with col1:
-        pregnancies = st.number_input("Pregnancies", 0, 20, 3, 1)
-        glucose = st.number_input("Glucose", 0, 300, 162, 1)
-        blood_pressure = st.number_input("Blood Pressure", 0, 200, 80, 1)
-        skin_thickness = st.number_input("Skin Thickness", 0, 100, 20, 1)
-    with col2:
-        insulin = st.number_input("Insulin", 0, 900, 70, 1)
-        bmi = st.number_input("BMI", 0.0, 70.0, 30.0, 0.1, format="%.1f")
-        dpf = st.number_input(
-            "Diabetes Pedigree Function", 0.0, 3.0, 0.51, 0.01, format="%.2f"
-        )
-        age = st.number_input("Age", 1, 120, 35, 1)
+    input_columns = [col1, col2, col1, col2]
+    input_values = {}
+    for (key, label, min_val, max_val, default_val, step, help_text), col in zip(
+        INPUT_FIELDS, input_columns
+    ):
+        with col:
+            input_values[key] = st.number_input(
+                label, min_val, max_val, default_val, step, help=help_text
+            )
 
     if st.button(
         f"🩺 Predict with {model_choice}",
@@ -349,14 +360,10 @@ if page == "Predict":
         width="stretch",
     ):
         patient = pd.DataFrame([{
-            "Pregnancies": pregnancies,
-            "Glucose": glucose,
-            "BloodPressure": blood_pressure,
-            "SkinThickness": skin_thickness,
-            "Insulin": insulin,
-            "BMI": bmi,
-            "DiabetesPedigreeFunction": dpf,
-            "Age": age,
+            "Pregnancies": input_values["Pregnancies"],
+            "Glucose": input_values["Glucose"],
+            "BMI": input_values["BMI"],
+            "Age": input_values["Age"],
         }])
 
         try:
@@ -412,8 +419,9 @@ if page == "Predict":
 elif page == "Batch CSV":
     st.markdown("## 📄 Batch Patient Prediction")
     st.write(
-        "Upload a CSV containing the eight raw medical-value columns. Every "
-        "patient will be evaluated by every available model."
+        "Upload a CSV containing the four raw medical-value columns "
+        "(Pregnancies, Glucose, BMI, Age). Every patient will be "
+        "evaluated by every available model."
     )
     template = pd.DataFrame(columns=FEATURES)
     st.download_button(
