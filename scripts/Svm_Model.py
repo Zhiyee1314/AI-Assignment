@@ -11,6 +11,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
@@ -66,9 +67,13 @@ def run_feature_ablation(base_estimator, X_train, X_test, y_train, y_test):
 
         # ADDITION: remove the corresponding SVM feature weight during each
         # three-feature ablation experiment.
-        feature_weights = candidate.get_params().get(
-            "feature_weight__weights"
+        candidate_params = candidate.get_params()
+        weight_parameter = (
+            "estimator__feature_weight__weights"
+            if "estimator__feature_weight__weights" in candidate_params
+            else "feature_weight__weights"
         )
+        feature_weights = candidate_params.get(weight_parameter)
         if removed is not None and feature_weights is not None:
             full_weights = list(feature_weights)
             kept_indices = [
@@ -76,9 +81,11 @@ def run_feature_ablation(base_estimator, X_train, X_test, y_train, y_test):
                 for index, feature in enumerate(FEATURE_ORDER)
                 if feature != removed
             ]
-            candidate.set_params(feature_weight__weights=tuple(
-                full_weights[index] for index in kept_indices
-            ))
+            candidate.set_params(**{
+                weight_parameter: tuple(
+                    full_weights[index] for index in kept_indices
+                )
+            })
 
         candidate.fit(train_scaled, y_train)
         prediction = candidate.predict(test_scaled)
@@ -163,7 +170,6 @@ def main():
         estimator=Pipeline([
             ("feature_weight", FeatureWeightTransformer()),
             ("model", SVC(
-                probability=True,
                 random_state=RANDOM_STATE,
             )),
         ]),
@@ -176,10 +182,26 @@ def main():
 
     print("\nSearching for best SVM parameters...")
     grid.fit(X_train, y_train)
-    svm = grid.best_estimator_
 
     print("\nBest SVM parameters:", grid.best_params_)
     print(f"Best CV accuracy: {grid.best_score_:.4f}")
+
+    # SVC(probability=True) is deprecated in scikit-learn 1.9. Calibrate the
+    # tuned decision scores on training folds instead. This retains valid
+    # predict_proba() support without exposing the unseen test set.
+    print("\nCalibrating best SVM probabilities using training folds...")
+    svm = CalibratedClassifierCV(
+        estimator=clone(grid.best_estimator_),
+        method="sigmoid",
+        cv=StratifiedKFold(
+            n_splits=5,
+            shuffle=True,
+            random_state=RANDOM_STATE,
+        ),
+        ensemble=False,
+        n_jobs=-1,
+    )
+    svm.fit(X_train, y_train)
 
     y_pred = svm.predict(X_test)
     y_prob = svm.predict_proba(X_test)[:, 1]
@@ -192,7 +214,7 @@ def main():
     cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
     tn, fp, fn, tp = cm.ravel()
 
-    print("\n===== SVM (Tuned SVC) — Final Results =====")
+    print("\n===== SVM (Tuned and Calibrated) — Final Results =====")
     print(f"Accuracy : {accuracy:.4f}")
     print(f"Precision: {precision:.4f}")
     print(f"Recall   : {recall:.4f}")
