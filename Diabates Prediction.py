@@ -6,6 +6,7 @@ them, applies the saved imputer and 0-1 scaler, and loads existing .pkl files.
 import hashlib
 import io
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import joblib
@@ -395,7 +396,7 @@ if page == "Predict":
                 )
 
             save_history_row({
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).strftime("%Y-%m-%d %H:%M:%S"),
                 "model": model_choice,
                 "probability": (
                     np.nan
